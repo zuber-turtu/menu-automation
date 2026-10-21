@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MenuFlow AI & Portal Connector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-group">
+        <div class="logo-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <div>
+          <h1>MenuFlow <span class="badge-ai">AI</span></h1>
+          <p class="subtitle">Intelligent Menu Extraction & Sheet Automation</p>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- API Key Status Pill -->
+        <div class="api-status-pill" id="apiKeyStatusBadge">
+          {% if has_gemini_key %}
+            <span class="status-indicator active"></span> Gemini Vision Ready
+          {% else %}
+            <span class="status-indicator idle"></span> Key Needed
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      
+      <!-- TAB 1: MENU AUTOMATION SHEET GENERATOR -->
+      <section id="panelGenerator" class="tab-panel active">
+        <!-- Top Control Bar -->
+        <div class="control-grid">
+          <!-- Step 1: Master Reference & Category Taxonomy -->
+          <div class="card glass">
+            <div class="card-header">
+              <span class="step-num">1</span>
+              <div>
+                <h3>Reference & Category Mapping</h3>
+                <p>Template spreadsheet & Turtu category taxonomy for automatic ID mapping.</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="template-status-box" id="templateStatusBox">
+                <div class="loading-spinner-sm"></div> Checking template...
+              </div>
+
+              <div class="template-status-box" id="categoryStatusBox" style="margin-top: -6px;">
+                <div class="loading-spinner-sm"></div> Loading categories...
+              </div>
+
+              <div class="dual-upload-actions">
+                <label class="btn btn-secondary btn-file">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Template (.xlsx)
+                  <input type="file" id="refSheetInput" accept=".xlsx" onchange="uploadReferenceSheet(event)" style="display:none;">
+                </label>
+                <label class="btn btn-secondary btn-file">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  Categories (.csv)
+                  <input type="file" id="categoryFileInput" accept=".csv" onchange="uploadCategoryCsv(event)" style="display:none;">
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step 2: Upload Menu Document -->
+          <div class="card glass">
+            <div class="card-header">
+              <span class="step-num">2</span>
+              <div>
+                <h3>Menu PDF or Image</h3>
+                <p>Upload restaurant menu (PDF, PNG, JPG) to parse items with Gemini AI.</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="dropzone" id="menuDropzone" onclick="document.getElementById('menuFileInput').click()">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                  <polyline points="14 2 14 8 20 8"></polyline>
+                  <line x1="12" y1="18" x2="12" y2="12"></line>
+                  <line x1="9" y1="15" x2="15" y2="15"></line>
+                </svg>
+                <p id="menuDropzoneText"><strong>Click or drag menu here</strong><br><span>Supports PDF, PNG, JPG, WEBP</span></p>
+                <input type="file" id="menuFileInput" accept=".pdf,image/*" onchange="handleMenuFileSelected(event)" style="display:none;">
+              </div>
+              <button id="extractBtn" class="btn btn-primary w-100" onclick="startExtraction()" disabled>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Extract Menu with Gemini AI
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Batch Parameters Configuration Toolbar -->
+        <div class="batch-config-bar">
+          <div class="batch-config-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Batch Store Settings
+          </div>
+          <div class="batch-field">
+            <label>Store ID</label>
+            <input type="number" id="batchStoreId" value="95" title="Store ID">
+          </div>
+          <div class="batch-field">
+            <label>Module ID</label>
+            <input type="number" id="batchModuleId" value="3" title="Module ID">
+          </div>
+          <div class="batch-field">
+            <label>Discount</label>
+            <input type="number" id="batchDiscount" value="0" step="1" title="Discount value">
+          </div>
+          <div class="batch-field">
+            <label>Discount Type</label>
+            <select id="batchDiscountType">
+              <option value="percent">Percent (%)</option>
+              <option value="amount">Amount</option>
+            </select>
+          </div>
+          <div class="batch-field">
+            <label>Available Starts</label>
+            <input type="text" id="batchTimeStarts" value="08:00:00" placeholder="08:00:00" style="max-width: 100px;">
+          </div>
+          <div class="batch-field">
+            <label>Available Ends</label>
+            <input type="text" id="batchTimeEnds" value="23:55:00" placeholder="23:55:00" style="max-width: 100px;">
+          </div>
+        </div>
+
+        <!-- Extraction Progress Indicator -->
+        <div id="progressContainer" class="progress-bar-container" style="display:none;">
+          <div class="progress-info">
+            <span id="progressText">Analyzing menu layout, categories & variations with Gemini...</span>
+            <span id="progressPercent">50%</span>
+          </div>
+          <div class="progress-track">
+            <div id="progressFill" class="progress-fill" style="width: 50%;"></div>
+          </div>
+        </div>
+
+        <!-- Side-by-Side Review & Edit Workspace -->
+        <div class="review-workspace" id="reviewWorkspace">
+          <!-- Left: Document Preview -->
+          <div class="preview-panel glass">
+            <div class="panel-header">
+              <h4>Original Menu Document</h4>
+              <span id="previewDocName" class="file-tag">No file loaded</span>
+            </div>
+            <div class="preview-content" id="previewContent">
+              <div class="empty-state">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <polyline points="21 15 16 10 5 21"/>
+                </svg>
+                <p>Upload a menu to preview pages here</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Interactive Data Table -->
+          <div class="table-panel glass">
+            <div class="panel-header">
+              <div>
+                <h4>Extracted Menu Items (21-Column Actual Portal Ready)</h4>
+                <p class="text-muted"><span id="itemsCountBadge">0</span> items mapped with Category IDs. Edit or adjust before generating.</p>
+              </div>
+              <div class="table-actions">
+                <button class="btn btn-sm btn-secondary" onclick="addNewRow()">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Row
+                </button>
+                <button id="downloadSheetBtn" class="btn btn-sm btn-success" onclick="generateAndDownloadExcel()" disabled>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export Formatted Excel
+                </button>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table id="menuItemsTable">
+                <thead>
+                  <tr>
+                    <th style="min-width: 170px;">Category & ID</th>
+                    <th style="min-width: 170px;">Item Name</th>
+                    <th style="max-width: 90px;">Price (₹)</th>
+                    <th style="min-width: 110px;">Dietary</th>
+                    <th style="min-width: 150px;">Variations / Sizes</th>
+                    <th>Description</th>
+                    <th style="width: 40px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="menuItemsBody">
+                  <tr class="empty-row">
+                    <td colspan="7" class="text-center text-muted">Upload a menu document and click "Extract Menu with Gemini AI" to populate the sheet.</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Datalist for fast category auto-completion -->
+      <datalist id="categoriesDatalist"></datalist>
+
+    </main>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
