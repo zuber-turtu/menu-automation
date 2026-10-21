@@ -1,5 +1,7 @@
 import os
+import re
 import json
+import time
 import shutil
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
@@ -12,6 +14,85 @@ from app.config import settings
 from app.services.category_service import category_service
 
 router = APIRouter(prefix="/api/menu", tags=["Menu Processing & Automation"])
+
+# Regex pattern to identify portion and piece suffixes in dish titles
+PORTION_REGEX = re.compile(
+    r"^(?P<base>.+?)[\s\(\[\{,\-]+(?P<portion>(?:\d+\s*(?:pieces?|pcs?|nos?|no\.|slices?))|(?:half|full|quarter|regular|small|medium|large|single|double|triple|jumbo|mini))[\)\]\}]*$",
+    re.IGNORECASE
+)
+
+def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Consolidates items that represent the same dish with different portion sizes or piece counts
+    (e.g. 'Idali 1 Piece' & 'Idali 2 Piece', 'Vada (1 Piece)' & 'Vada (2 Piece)').
+    """
+    grouped = {}
+    order = []
+
+    for item in items:
+        # If item already has multiple variation options, keep as is
+        has_existing_vars = bool(item.get("variations") and len(item.get("variations")) > 0 and len(item["variations"][0].get("values", [])) > 1)
+        
+        name = item.get("name", "").strip()
+        match = PORTION_REGEX.match(name)
+
+        if match and not has_existing_vars:
+            base_name = match.group("base").strip()
+            portion_label = match.group("portion").strip().title()
+            cat_id = str(item.get("category_id") or "")
+            group_key = f"{cat_id.lower()}::{base_name.lower()}"
+
+            if group_key not in grouped:
+                grouped[group_key] = {
+                    "is_multi": True,
+                    "base_name": base_name,
+                    "primary_item": dict(item),
+                    "options": []
+                }
+                order.append(group_key)
+            
+            price_val = float(item.get("price", 0.0) or 0.0)
+            grouped[group_key]["options"].append({
+                "label": portion_label,
+                "price": price_val
+            })
+        else:
+            group_key = f"standalone_{len(order)}"
+            grouped[group_key] = {
+                "is_multi": False,
+                "primary_item": dict(item),
+                "options": []
+            }
+            order.append(group_key)
+
+    consolidated = []
+    for key in order:
+        entry = grouped[key]
+        item = entry["primary_item"]
+        
+        if entry["is_multi"] and len(entry["options"]) > 1:
+            sorted_opts = sorted(entry["options"], key=lambda x: x["price"])
+            item["name"] = entry["base_name"]
+            item["price"] = sorted_opts[0]["price"]
+            item["variations"] = [
+                {
+                    "name": "Portion",
+                    "type": "single",
+                    "min": "0",
+                    "max": "0",
+                    "required": "off",
+                    "values": [
+                        {
+                            "label": opt["label"],
+                            "optionPrice": str(int(opt["price"]) if opt["price"].is_integer() else opt["price"])
+                        }
+                        for opt in sorted_opts
+                    ]
+                }
+            ]
+        consolidated.append(item)
+
+    return consolidated
 
 # =====================================================================
 # PYDANTIC SCHEMAS FOR STRUCTURED GEMINI EXTRACTION & PAYLOADS
@@ -162,7 +243,10 @@ async def extract_menu_items(
     Accepts a menu PDF or image file and extracts dishes, prices, veg/non-veg,
     variations, and matches Category IDs using Google Gemini Vision.
     """
-    effective_key = api_key or settings.GEMINI_API_KEY
+    # Dynamic reload from .env in case user updated it while server is running
+    from dotenv import load_dotenv
+    load_dotenv(settings.BASE_DIR / ".env", override=True)
+    effective_key = (api_key or "").strip() or os.getenv("GEMINI_API_KEY", "").strip() or settings.GEMINI_API_KEY
     filename = menu_file.filename
     ext = Path(filename).suffix.lower()
 
@@ -201,57 +285,115 @@ Examine this menu image/PDF carefully and extract EVERY dish, drink, or food ite
 ### TARGET CATEGORY TAXONOMY:
 {taxonomy_prompt}
 
-### EXTRACTION RULES:
-1. Item Name: Extract the exact, clean title of the food item (e.g. "Chicken Dum Biryani", "Chicken Handi", "Chicago Pizza"). Do NOT include price inside the name.
+### CRITICAL DISH CONSOLIDATION & VARIATION GROUPING:
+Analyze the ENTIRE menu before extracting items.
+If the SAME dish appears multiple times with different piece counts, portion sizes, or quantities:
+(for example: 'Idali 1 Piece' & 'Idali 2 Piece', 'Vada (1 Piece)' & 'Vada (2 Piece)', 'Chicken Dum Biryani (Half)' & 'Chicken Dum Biryani (Full)', 'Filter Coffee Regular' & 'Filter Coffee Large', 'Paneer Tikka 6 Pcs' & 'Paneer Tikka 12 Pcs'):
+YOU MUST CONSOLIDATE THEM INTO A SINGLE MENU ITEM.
+NEVER create separate items for different sizes/pieces of the same dish!
+
+Rules for Consolidation:
+1. Base Item Name: Strip the portion/piece suffix to get the clean common dish name (e.g. 'Idali' instead of 'Idali 1 Piece'/'Idali 2 Piece'; 'Vada' instead of 'Vada (1 Piece)'/'Vada (2 Piece)').
+2. Base Price: Set 'price' to the lowest/single-portion price (e.g. 48 for Idali, 54 for Vada).
+3. Variations Array: Populate the 'variations' list with all portions/piece counts in ascending order:
+   Example for Idali:
+   "variations": [
+     {{
+       "name": "Portion",
+       "type": "single",
+       "min": 0,
+       "max": 0,
+       "required": "off",
+       "values": [
+         {{"label": "1 Piece", "optionPrice": "48"}},
+         {{"label": "2 Piece", "optionPrice": "78"}}
+       ]
+     }}
+   ]
+   Example for Vada:
+   "variations": [
+     {{
+       "name": "Portion",
+       "type": "single",
+       "min": 0,
+       "max": 0,
+       "required": "off",
+       "values": [
+         {{"label": "1 Piece", "optionPrice": "54"}},
+         {{"label": "2 Piece", "optionPrice": "96"}}
+       ]
+     }}
+   ]
+
+### GENERAL EXTRACTION RULES:
+1. Item Name: Extract the clean common title of the food item. Do NOT include price inside the name.
 2. Description: Extract the description or ingredients listed under the dish. If none, leave empty "".
 3. Category Assignment:
    - Identify which category from the taxonomy above best fits each dish.
    - Provide the EXACT matching 'category_id' (e.g., '76', '3225') and 'category_name'.
    - If a dish doesn't have an exact match, choose the closest logical category (e.g. Chicken Shawarma -> Shawarma ID 3225, Butter Naan -> Roti, Paneer Tikka -> Paneer or Starters).
-4. Price:
-   - Extract the numeric base price. If multiple sizes/portions exist (e.g. Half 150 / Full 300), set price to the base/lowest option (150) and extract all sizes into 'variations'.
-5. Veg / Non-Veg Classification:
+4. Veg / Non-Veg Classification:
    - Strictly set 'veg' to 'yes' if the item is vegetarian (vegetables, paneer, lentils, dairy, cheese, wheat, rice, fruits).
    - Strictly set 'veg' to 'no' if the item contains meat, chicken, mutton, egg, fish, seafood, or non-veg stock.
-6. Variations (Sizes/Portions/Customizations):
-   - If an item offers portions or sizes (e.g. Half/Full, Quarter/Half/Full, 2 pcs/4 pcs, Small/Medium/Large, Short/Medium/Tall, Bottle Sizes):
-     Create a variation group strictly formatted as:
-     name: "Portion" (or size name or dish title)
-     type: "single" (or "radio" for half/full, "multi" for multiple toppings)
-     min: 0
-     max: 0
-     required: "on"
-     values: list of objects with label (e.g. "Half", "Full") and optionPrice (e.g. "150", "280").
-   - If NO size variation exists, leave 'variations' as an empty list [].
+5. If an item has NO variations or only 1 fixed portion (e.g. 'Mangalore Bun', 'Masala Dosa'), set variations to empty list [].
 
 Format strictly according to the requested JSON schema.
 """
 
-        # Try gemini-2.5-flash with structured output
+        # Resilient multi-tier candidate cascade with exponential backoff for transient 503 spikes
+        candidate_models = [
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.7-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-latest"
+        ]
+
         extracted_data = None
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[
-                        types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
-                        prompt
-                    ],
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=MenuExtractionContainer
+        for model_name in candidate_models:
+            # Try up to 2 attempts per model with backoff if 503 high demand is encountered
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[
+                            types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
+                            prompt
+                        ],
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=MenuExtractionContainer
+                        )
                     )
-                )
-                if response.text:
-                    parsed_json = json.loads(response.text)
-                    extracted_data = parsed_json.get("items", [])
+                    if response.text:
+                        parsed_json = json.loads(response.text)
+                        extracted_data = parsed_json.get("items", [])
+                        print(f"Extraction successful with model: {model_name} ({len(extracted_data)} items extracted)")
+                        break
+                except Exception as model_err:
+                    err_str = str(model_err)
+                    print(f"Model {model_name} attempt {attempt + 1}: {err_str}")
+                    # If high demand 503 spike, wait briefly before retrying or moving to next candidate
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                        if attempt == 0:
+                            time.sleep(1.5)
+                            continue
+                        else:
+                            time.sleep(1.0)
+                    # If model not found (404) or quota (429), break inner loop to try next model immediately
                     break
-            except Exception as model_err:
-                print(f"Model {model_name} attempt: {model_err}")
-                continue
+
+            if extracted_data is not None:
+                break
 
         if extracted_data is None:
-            raise RuntimeError("Gemini was unable to parse the document with the available models.")
+            return {
+                "status": "warning",
+                "message": "AI extraction was temporarily unavailable due to high demand spikes (503 UNAVAILABLE). Please click 'Extract & Preview' again in a few moments.",
+                "items": []
+            }
 
         # Post-process: Verify and normalize Category IDs using category_service
         processed_items = []
@@ -299,10 +441,13 @@ Format strictly according to the requested JSON schema.
                 "variations": formatted_vars
             })
 
+        # Consolidate any duplicate dishes with different piece/portion sizes
+        consolidated_items = consolidate_duplicate_dishes(processed_items)
+
         return {
             "status": "success",
-            "items_count": len(processed_items),
-            "items": processed_items
+            "items_count": len(consolidated_items),
+            "items": consolidated_items
         }
 
     except Exception as e:

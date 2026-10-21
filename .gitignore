@@ -1,11 +1,18 @@
-# Environments & Secrets
-.env
+# Python Virtual Environments
 .venv/
 venv/
 ENV/
 env/
+env.bak/
+venv.bak/
 
-# Python Cache & Bytecode
+# Environment variables & secrets (CRITICAL: Do not commit API keys)
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python bytecode & cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -14,18 +21,26 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Temporary / Generated Uploads
+# Dynamic uploads & generated files (Keep folder via .gitkeep)
 uploads/*
 !uploads/.gitkeep
 
-# Operating System & IDE Files
-.DS_Store
-Thumbs.db
-ehthumbs.db
+# IDE & Editor files
 .vscode/
 .idea/
 *.sublime-project
 *.sublime-workspace
+.gemini/
 
-# Local logs
+# Operating System files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temporary and log files
 *.log
+scratch/
+scratch_test.py
+test_actual_format.py
