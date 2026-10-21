@@ -15,45 +15,187 @@ from app.services.category_service import category_service
 
 router = APIRouter(prefix="/api/menu", tags=["Menu Processing & Automation"])
 
-# Regex pattern to identify portion and piece suffixes in dish titles
-PORTION_REGEX = re.compile(
-    r"^(?P<base>.+?)[\s\(\[\{,\-]+(?P<portion>(?:\d+\s*(?:pieces?|pcs?|nos?|no\.|slices?))|(?:half|full|quarter|regular|small|medium|large|single|double|triple|jumbo|mini))[\)\]\}]*$",
+# Universal portion patterns covering pieces, counts, portions, weights, volumes, and sizing
+PORTION_PATTERN = (
+    r"(?:\d+\s*(?:pieces?|pcs?|nos?|no\.|slices?|pc|shots?|cups?|glasses?|plates?|pack|buckets?|scoops?|inch))|"
+    r"(?:\(\s*\d+\s*(?:pieces?|pcs?|nos?|no\.)?\s*\))|"
+    r"(?:\d+\s*(?:g|gm|gms|kg|kgs|ml|l|ltr|litres?))|"
+    r"(?:half|full|quarter|regular|small|medium|large|single|double|triple|jumbo|mini|family(?:\s+pack)?|standard|big|mega|xl|xxl)"
+)
+
+SEP = r"[\s\(\[\{,\-]+"
+END = r"[\)\]\}]*$"
+
+PORTION_SUFFIX_REGEX = re.compile(r"^(?P<base>.+?)" + SEP + r"(?P<portion>" + PORTION_PATTERN + r")" + END, re.IGNORECASE)
+PORTION_PREFIX_REGEX = re.compile(r"^(?P<portion>" + PORTION_PATTERN + r")" + SEP + r"(?P<base>.+)$", re.IGNORECASE)
+
+# Universal inline variety regex covering options separated by slash (/), backslash (\), comma (,), or 'or'
+INLINE_VARIETY_REGEX = re.compile(
+    r"^(?P<base>[^-\(\[\{/:]+?)\s*[-\(\[\{:]\s*(?P<options>[^-\)\]\}]+?(?:[/\\,]|\s+or\s+)[^-\)\]\}]+)[\)\]\}]*$",
     re.IGNORECASE
 )
 
+# Prefixed inline options (e.g. 'Onion/Mirchi/Potato Bhajji')
+SLASH_PREFIX_REGEX = re.compile(
+    r"^(?P<options>[A-Za-z0-9\s]+(?:/[A-Za-z0-9\s]+)+)\s+(?P<base>[A-Za-z0-9\s]+)$",
+    re.IGNORECASE
+)
+
+COMMON_FLAVOR_PREFIXES = {
+    'onion', 'potato', 'mirchi', 'aloo', 'gobi', 'paneer', 'cheese', 'steamed', 'fried', 
+    'tandoori', 'kurkure', 'plain', 'butter', 'garlic', 'veg', 'egg', 'chicken', 
+    'mutton', 'fish', 'prawn', 'vanilla', 'chocolate', 'strawberry', 'mango', 'oreo'
+}
+
+def normalize_variation_deltas(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enforces the delta pricing rule:
+    - Sets item price to the lowest price among all its variations.
+    - Base variation has optionPrice = "0".
+    - For every other variation, optionPrice is strictly the extra difference needed to reach that variation's actual price.
+    - If options already have min optionPrice == 0, they are already deltas and are preserved.
+    """
+    variations = item.get("variations")
+    if not variations or not isinstance(variations, list):
+        return item
+
+    item_base_price = float(item.get("price", 0.0) or 0.0)
+
+    for group in variations:
+        if not isinstance(group, dict):
+            continue
+        values = group.get("values", [])
+        if not values or len(values) < 1:
+            continue
+
+        numeric_prices = []
+        for v in values:
+            try:
+                numeric_prices.append(float(v.get("optionPrice", 0.0) or 0.0))
+            except (ValueError, TypeError):
+                numeric_prices.append(0.0)
+
+        min_val = min(numeric_prices)
+        max_val = max(numeric_prices)
+
+        # Case A: All options share the same price (e.g. all 72 or all 0 like Onion/Mirchi/Potato)
+        if min_val == max_val:
+            if min_val > 0 and (item_base_price == 0.0 or item_base_price == min_val):
+                item_base_price = min_val
+            for v in values:
+                v["optionPrice"] = "0"
+
+        # Case B: Absolute prices provided (min_val > 0, e.g. 50 and 70, or 48 and 78)
+        elif min_val > 0:
+            item_base_price = min_val
+            for v, p in zip(values, numeric_prices):
+                delta = p - min_val
+                v["optionPrice"] = str(int(delta) if delta.is_integer() else round(delta, 2))
+
+        # Case C: Already delta priced (min_val == 0, e.g. 0 and 20)
+        else:
+            for v, p in zip(values, numeric_prices):
+                v["optionPrice"] = str(int(p) if p.is_integer() else round(p, 2))
+
+    item["price"] = int(item_base_price) if item_base_price.is_integer() else round(item_base_price, 2)
+    return item
+
 def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Consolidates items that represent the same dish with different portion sizes or piece counts
-    (e.g. 'Idali 1 Piece' & 'Idali 2 Piece', 'Vada (1 Piece)' & 'Vada (2 Piece)').
+    Universal consolidator for ANY restaurant dish:
+    1. Detects inline varieties (slash, comma, 'or' separated, e.g. 'Bhajji - Onion/Mirchi/Potato', 'Momos (Steamed or Fried)', 'Maggi - Plain/Masala/Cheese').
+    2. Groups multi-portion dishes (suffix or prefix piece counts, sizes, weights, or volumes, e.g. 'Chicken Tikka 6 Pcs' / '12 Pcs', 'Half / Full Biryani').
+    3. Groups common flavor varieties (e.g. 'Onion Bhajji', 'Mirchi Bhajji', 'Potato Bhajji' or 'Steamed Momos', 'Fried Momos').
+    4. Applies universal DELTA PRICING to all variations across the entire menu:
+       - Base price = lowest variation price.
+       - Base variation = optionPrice '0'.
+       - Other variations = optionPrice extra difference.
     """
     grouped = {}
     order = []
 
     for item in items:
-        # If item already has multiple variation options, keep as is
-        has_existing_vars = bool(item.get("variations") and len(item.get("variations")) > 0 and len(item["variations"][0].get("values", [])) > 1)
-        
         name = item.get("name", "").strip()
-        match = PORTION_REGEX.match(name)
+        has_existing_vars = bool(item.get("variations") and len(item.get("variations")) > 0 and len(item["variations"][0].get("values", [])) > 1)
 
-        if match and not has_existing_vars:
-            base_name = match.group("base").strip()
-            portion_label = match.group("portion").strip().title()
+        # 1. Inline varieties check
+        if not has_existing_vars:
+            inline_match = INLINE_VARIETY_REGEX.match(name)
+            if not inline_match:
+                inline_match = SLASH_PREFIX_REGEX.match(name)
+
+            if inline_match:
+                base_name = inline_match.group("base").strip()
+                opts_str = inline_match.group("options")
+                raw_options = [o.strip().title() for o in re.split(r"[/\\,]|\s+or\s+", opts_str) if o.strip()]
+                if len(raw_options) >= 2:
+                    item["name"] = base_name
+                    item["variations"] = [
+                        {
+                            "name": "Variation",
+                            "type": "single",
+                            "min": "0",
+                            "max": "0",
+                            "required": "off",
+                            "values": [
+                                {"label": opt_lbl, "optionPrice": "0"}
+                                for opt_lbl in raw_options
+                            ]
+                        }
+                    ]
+                    has_existing_vars = True
+
+        # 2. Portion Suffix & Prefix checks
+        portion_match = PORTION_SUFFIX_REGEX.match(item.get("name", "").strip()) if not has_existing_vars else None
+        if not portion_match and not has_existing_vars:
+            portion_match = PORTION_PREFIX_REGEX.match(item.get("name", "").strip())
+
+        # 3. Flavor prefix check (e.g. 'Onion Bhajji', 'Potato Bhajji')
+        flavor_match = None
+        if not portion_match and not has_existing_vars:
+            parts = item.get("name", "").strip().split()
+            if len(parts) >= 2 and parts[0].lower() in COMMON_FLAVOR_PREFIXES:
+                flavor_match = (parts[0].title(), " ".join(parts[1:]))
+
+        if portion_match and not has_existing_vars:
+            base_name = portion_match.group("base").strip()
+            portion_label = portion_match.group("portion").strip().title()
             cat_id = str(item.get("category_id") or "")
-            group_key = f"{cat_id.lower()}::{base_name.lower()}"
+            group_key = f"{cat_id.lower()}::portion::{base_name.lower()}"
 
             if group_key not in grouped:
                 grouped[group_key] = {
                     "is_multi": True,
+                    "group_type": "portion",
                     "base_name": base_name,
                     "primary_item": dict(item),
                     "options": []
                 }
                 order.append(group_key)
-            
+
             price_val = float(item.get("price", 0.0) or 0.0)
             grouped[group_key]["options"].append({
                 "label": portion_label,
+                "price": price_val
+            })
+        elif flavor_match and not has_existing_vars:
+            flavor_label, base_dish = flavor_match
+            cat_id = str(item.get("category_id") or "")
+            group_key = f"{cat_id.lower()}::flavor::{base_dish.lower()}"
+
+            if group_key not in grouped:
+                grouped[group_key] = {
+                    "is_multi": True,
+                    "group_type": "flavor",
+                    "base_name": base_dish,
+                    "primary_item": dict(item),
+                    "options": []
+                }
+                order.append(group_key)
+
+            price_val = float(item.get("price", 0.0) or 0.0)
+            grouped[group_key]["options"].append({
+                "label": flavor_label,
                 "price": price_val
             })
         else:
@@ -69,14 +211,16 @@ def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, 
     for key in order:
         entry = grouped[key]
         item = entry["primary_item"]
-        
+
         if entry["is_multi"] and len(entry["options"]) > 1:
             sorted_opts = sorted(entry["options"], key=lambda x: x["price"])
+            base_price = sorted_opts[0]["price"]
             item["name"] = entry["base_name"]
-            item["price"] = sorted_opts[0]["price"]
+            item["price"] = base_price
+            group_name = "Portion" if entry.get("group_type") == "portion" else "Variation"
             item["variations"] = [
                 {
-                    "name": "Portion",
+                    "name": group_name,
                     "type": "single",
                     "min": "0",
                     "max": "0",
@@ -84,13 +228,16 @@ def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, 
                     "values": [
                         {
                             "label": opt["label"],
-                            "optionPrice": str(int(opt["price"]) if opt["price"].is_integer() else opt["price"])
+                            "optionPrice": str(int(opt["price"] - base_price) if (opt["price"] - base_price).is_integer() else round(opt["price"] - base_price, 2))
                         }
                         for opt in sorted_opts
                     ]
                 }
             ]
-        consolidated.append(item)
+
+        # Apply universal delta pricing normalization
+        normalized_item = normalize_variation_deltas(item)
+        consolidated.append(normalized_item)
 
     return consolidated
 
@@ -285,45 +432,55 @@ Examine this menu image/PDF carefully and extract EVERY dish, drink, or food ite
 ### TARGET CATEGORY TAXONOMY:
 {taxonomy_prompt}
 
-### CRITICAL DISH CONSOLIDATION & VARIATION GROUPING:
+### CRITICAL DISH CONSOLIDATION & VARIATION RULES (APPLIES UNIVERSALLY TO ALL DISHES & CUISINES):
 Analyze the ENTIRE menu before extracting items.
-If the SAME dish appears multiple times with different piece counts, portion sizes, or quantities:
-(for example: 'Idali 1 Piece' & 'Idali 2 Piece', 'Vada (1 Piece)' & 'Vada (2 Piece)', 'Chicken Dum Biryani (Half)' & 'Chicken Dum Biryani (Full)', 'Filter Coffee Regular' & 'Filter Coffee Large', 'Paneer Tikka 6 Pcs' & 'Paneer Tikka 12 Pcs'):
-YOU MUST CONSOLIDATE THEM INTO A SINGLE MENU ITEM.
-NEVER create separate items for different sizes/pieces of the same dish!
+These rules apply to EVERY dish category (Beverages, Breakfast, Fast Food, Chinese, Indian Breads & Curries, Biryanis, Tandoori, Snacks, Desserts, Ice Creams, Pasta, Burgers, Momos, Shakes, etc.).
 
-Rules for Consolidation:
-1. Base Item Name: Strip the portion/piece suffix to get the clean common dish name (e.g. 'Idali' instead of 'Idali 1 Piece'/'Idali 2 Piece'; 'Vada' instead of 'Vada (1 Piece)'/'Vada (2 Piece)').
-2. Base Price: Set 'price' to the lowest/single-portion price (e.g. 48 for Idali, 54 for Vada).
-3. Variations Array: Populate the 'variations' list with all portions/piece counts in ascending order:
-   Example for Idali:
-   "variations": [
-     {{
-       "name": "Portion",
-       "type": "single",
-       "min": 0,
-       "max": 0,
-       "required": "off",
-       "values": [
-         {{"label": "1 Piece", "optionPrice": "48"}},
-         {{"label": "2 Piece", "optionPrice": "78"}}
-       ]
-     }}
-   ]
-   Example for Vada:
-   "variations": [
-     {{
-       "name": "Portion",
-       "type": "single",
-       "min": 0,
-       "max": 0,
-       "required": "off",
-       "values": [
-         {{"label": "1 Piece", "optionPrice": "54"}},
-         {{"label": "2 Piece", "optionPrice": "96"}}
-       ]
-     }}
-   ]
+1. DELTA PRICING RULE FOR ALL VARIATIONS (MANDATORY & UNIVERSAL):
+   - For ANY item with variations/sizes/flavors, set the main item 'price' to the LOWEST price among all its variations.
+   - In the variation format, use this lowest price as the base price with an additional amount of '0' (optionPrice: "0").
+   - For every other variation, enter ONLY the extra amount that needs to be added to the base price to reach that variation's actual price.
+   - Formula: optionPrice = (variation_actual_price - base_price).
+   - NEVER enter the full variation price in other options, and do NOT add the extra amount to an already-defined item price again!
+   - Example 1: Lowest variation costs ₹50 and another variation costs ₹70:
+     Set item price = 50.
+     Variation 1 (Base): optionPrice = "0"
+     Variation 2: optionPrice = "20" (70 - 50 = 20)
+   - Example 2: Small ₹120, Medium ₹160, Large ₹200:
+     Set item price = 120.
+     Small: optionPrice = "0", Medium: optionPrice = "40", Large: optionPrice = "80"
+   - Example 3: All varieties share the same price (e.g. ₹72):
+     Set item price = 72.
+     All varieties: optionPrice = "0"
+
+2. INLINE FLAVORS, TYPES, & VARIETIES (SLASH, COMMA, HYPHEN, OR 'OR' DELIMITED):
+   If ANY item lists multiple choices, flavors, preparations, or types in a single title:
+   (e.g., 'Bhajji - Onion/Mirchi/Potato', 'Maggi (Plain / Masala / Cheese)', 'Momos - Steamed / Fried / Tandoori', 'Sandwich - Veg / Cheese / Chicken', 'Pasta: Red Sauce / White Sauce', 'Paratha - Aloo / Gobi / Paneer', 'Milkshake - Mango / Oreo / Strawberry', 'Ice Cream - Vanilla / Chocolate / Butterscotch', 'Dosa - Plain / Masala / Ghee Roast', 'Puff - Veg / Egg / Chicken'):
+   - Clean Base Name: Strip the flavors/types to get the common dish name (e.g. 'Bhajji', 'Maggi', 'Momos', 'Paratha', 'Milkshake').
+   - Base Price: Lowest listed price (e.g. 72 for Bhajji).
+   - Variations Group: Create group named "Variation" or "Type" (type="single", required="off") with each flavor/option listed.
+   - Apply delta pricing (if all share the same price ₹72, every option has optionPrice = "0").
+   Example for 'Bhajji - Onion/Mirchi/Potato' @ 72:
+   "name": "Bhajji", "price": 72, "variations": [{{"name": "Variation", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "Onion", "optionPrice": "0"}}, {{"label": "Mirchi", "optionPrice": "0"}}, {{"label": "Potato", "optionPrice": "0"}}]}}]
+   Example for 'Maggi - Plain (60) / Masala (80) / Cheese (100)':
+   "name": "Maggi", "price": 60, "variations": [{{"name": "Variation", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "Plain", "optionPrice": "0"}}, {{"label": "Masala", "optionPrice": "20"}}, {{"label": "Cheese", "optionPrice": "40"}}]}}]
+
+3. PIECE, PORTION, & SIZE CONSOLIDATION:
+   If the SAME dish appears multiple times or on separate lines with different piece counts, portion sizes, weights, or volumes:
+   (e.g. 'Idali 1 Piece' & 'Idali 2 Piece', 'Chicken Tikka (6 Pcs)' & 'Chicken Tikka (12 Pcs)', 'Chicken Biryani (Half)' & 'Chicken Biryani (Full)', 'Cold Coffee (Regular)' & 'Cold Coffee (Large)', 'Paneer Butter Masala (Half)' & 'Paneer Butter Masala (Full)', 'Ice Cream (Single Scoop)' & 'Ice Cream (Double Scoop)'):
+   CONSOLIDATE THEM INTO A SINGLE MENU ITEM. NEVER create separate items for different sizes/pieces of the same dish!
+   - Base Name: Clean dish name (e.g. 'Idali', 'Chicken Tikka', 'Chicken Biryani', 'Cold Coffee').
+   - Base Price: Lowest price (e.g. 48 for Idali 1 Piece, 180 for Chicken Tikka 6 Pcs).
+   - Variations Group: Named "Portion" (type="single", required="off") with DELTA pricing:
+   Example for Idali (1 Piece = ₹48, 2 Piece = ₹78):
+   "name": "Idali", "price": 48, "variations": [{{"name": "Portion", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "1 Piece", "optionPrice": "0"}}, {{"label": "2 Piece", "optionPrice": "30"}}]}}]
+   Example for Chicken Tikka (6 Pcs = ₹180, 12 Pcs = ₹320):
+   "name": "Chicken Tikka", "price": 180, "variations": [{{"name": "Portion", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "6 Pcs", "optionPrice": "0"}}, {{"label": "12 Pcs", "optionPrice": "140"}}]}}]
+
+4. SEPARATE ROWS OF THE SAME DISH FAMILY:
+   If a menu lists separate rows for varieties of the same dish family:
+   (e.g., 'Onion Bhajji', 'Potato Bhajji', 'Mirchi Bhajji' or 'Steamed Momos', 'Fried Momos', 'Tandoori Momos'):
+   Consolidate them into a single menu item with variation choices using delta pricing!
 
 ### GENERAL EXTRACTION RULES:
 1. Item Name: Extract the clean common title of the food item. Do NOT include price inside the name.
@@ -519,12 +676,25 @@ async def generate_sheet_from_items(payload: GenerateSheetPayload):
             if matched_id:
                 cat_id = matched_id
 
-        # Variations JSON serialization
-        variations_json = "[]"
-        if isinstance(item.variations, list) and len(item.variations) > 0:
-            variations_json = json.dumps(item.variations, ensure_ascii=False)
+        # Variations JSON serialization with normalized delta pricing
+        raw_vars = []
+        if isinstance(item.variations, list):
+            raw_vars = [v.model_dump() if hasattr(v, "model_dump") else dict(v) for v in item.variations]
         elif isinstance(item.variations, str) and item.variations.strip().startswith("["):
-            variations_json = item.variations.strip()
+            try:
+                raw_vars = json.loads(item.variations)
+            except Exception:
+                raw_vars = []
+
+        normalized_item_data = normalize_variation_deltas({
+            "name": item.name,
+            "price": float(item.price or 0.0),
+            "variations": raw_vars
+        })
+
+        price_val = float(normalized_item_data.get("price", item.price or 0.0))
+        norm_vars = normalized_item_data.get("variations", [])
+        variations_json = json.dumps(norm_vars, ensure_ascii=False) if norm_vars else "[]"
 
         # Veg normalization
         veg_str = "yes" if str(item.veg or "yes").lower() in ["yes", "true", "1", "veg"] else "no"

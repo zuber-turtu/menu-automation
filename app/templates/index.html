@@ -267,6 +267,7 @@
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('half_full')">Half / Full</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('s_m_l')">Small / Med / Large</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('reg_large')">Regular / Large</button>
+                <button type="button" class="preset-chip" onclick="applyVariationPreset('flavors_same_price')">Flavors / Varieties (+₹0)</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('q_h_f')">Quarter / Half / Full</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('clear')" style="color: var(--danger); border-color: rgba(239,68,68,0.25);">Clear Variations</button>
               </div>
@@ -276,7 +277,7 @@
             <div style="display: grid; grid-template-columns: 2fr 1.2fr 1fr; gap: 12px; margin-bottom: 16px;">
               <div>
                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Group Title</label>
-                <input type="text" id="varGroupName" class="form-control" placeholder="e.g. Portion, Size" value="Portion" style="padding: 7px 10px; font-size: 0.85rem;">
+                <input type="text" id="varGroupName" class="form-control" placeholder="e.g. Portion, Size, Variation" value="Portion" style="padding: 7px 10px; font-size: 0.85rem;">
               </div>
               <div>
                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Selection Type</label>
@@ -297,8 +298,8 @@
             <!-- Option rows -->
             <div style="margin-bottom: 12px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin: 0;">Options & Pricing</label>
-                <span style="font-size: 0.72rem; color: var(--text-muted);">Exact option prices formatted for Turtu</span>
+                <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin: 0;">Options & Delta Extra Pricing</label>
+                <span style="font-size: 0.72rem; color: var(--accent-primary);">Base variation = ₹0, other variations = extra difference</span>
               </div>
               <div id="variationOptionsList">
                 <!-- Populated dynamically via JS -->

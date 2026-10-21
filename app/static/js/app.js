@@ -349,7 +349,10 @@ function renderTable(items) {
     let varBadge = `<span class="text-muted" style="font-size:0.75rem; text-decoration: underline dotted;">+ Add Sizes</span>`;
     if (Array.isArray(item.variations) && item.variations.length > 0) {
       const summary = item.variations.flatMap(g => 
-        (g.values || []).map(v => `${v.label}: ₹${v.optionPrice}`)
+        (g.values || []).map(v => {
+          const delta = parseFloat(v.optionPrice) || 0;
+          return `${v.label} (+₹${delta})`;
+        })
       ).join(', ');
       varBadge = `<span class="var-tag" title="Click to edit variations: ${escapeHtml(JSON.stringify(item.variations))}">${escapeHtml(summary || 'Configured')}</span>`;
     }
@@ -537,10 +540,10 @@ function addVariationOptionRow(label = '', price = '') {
   const row = document.createElement('div');
   row.className = 'variation-option-row';
   row.innerHTML = `
-    <input type="text" class="opt-label" placeholder="Option (e.g. Half, Full, Small)" value="${escapeHtml(label)}" style="flex: 2;">
+    <input type="text" class="opt-label" placeholder="Option (e.g. Onion, 1 Piece, Half)" value="${escapeHtml(label)}" style="flex: 2;">
     <div style="display:flex; align-items:center; gap: 4px; flex: 1.2;">
-      <span style="color:var(--text-muted); font-size:0.85rem;">₹</span>
-      <input type="number" class="opt-price" placeholder="Price" value="${price !== '' && price !== null && price !== undefined ? price : ''}" style="width: 100%;">
+      <span style="color:var(--text-muted); font-size:0.85rem;">+₹</span>
+      <input type="number" class="opt-price" placeholder="0 for base" value="${price !== '' && price !== null && price !== undefined ? price : ''}" style="width: 100%;">
     </div>
     <button type="button" class="btn-remove-opt" onclick="this.parentElement.remove(); syncFormToJson();" title="Remove option">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -566,32 +569,41 @@ function applyVariationPreset(preset) {
     return;
   }
 
+  if (preset === 'flavors_same_price') {
+    document.getElementById('varGroupName').value = "Variation";
+    document.getElementById('varGroupType').value = "single";
+    document.getElementById('varGroupRequired').value = "off";
+    addVariationOptionRow('Onion', 0);
+    addVariationOptionRow('Potato', 0);
+    addVariationOptionRow('Mirchi', 0);
+    syncFormToJson();
+    return;
+  }
+
   document.getElementById('varGroupName').value = (preset === 's_m_l' || preset === 'reg_large') ? "Size" : "Portion";
   document.getElementById('varGroupType').value = "single";
   document.getElementById('varGroupRequired').value = "off";
 
   if (preset === 'half_full') {
-    const half = Math.round((basePrice * 0.6) / 10) * 10 || 120;
-    addVariationOptionRow('Half', half);
-    addVariationOptionRow('Full', basePrice || 220);
+    const extra = Math.round((basePrice * 0.4) / 10) * 10 || 50;
+    addVariationOptionRow('Half', 0);
+    addVariationOptionRow('Full', extra);
   } else if (preset === 's_m_l') {
-    const small = Math.round((basePrice * 0.7) / 10) * 10 || 150;
-    const med = basePrice || 220;
-    const large = Math.round((basePrice * 1.35) / 10) * 10 || 300;
-    addVariationOptionRow('Small', small);
-    addVariationOptionRow('Medium', med);
-    addVariationOptionRow('Large', large);
+    const medExtra = Math.round((basePrice * 0.25) / 10) * 10 || 40;
+    const largeExtra = Math.round((basePrice * 0.55) / 10) * 10 || 90;
+    addVariationOptionRow('Small', 0);
+    addVariationOptionRow('Medium', medExtra);
+    addVariationOptionRow('Large', largeExtra);
   } else if (preset === 'reg_large') {
-    const reg = basePrice || 180;
-    const large = Math.round((basePrice * 1.4) / 10) * 10 || 250;
-    addVariationOptionRow('Regular', reg);
-    addVariationOptionRow('Large', large);
+    const extra = Math.round((basePrice * 0.35) / 10) * 10 || 50;
+    addVariationOptionRow('Regular', 0);
+    addVariationOptionRow('Large', extra);
   } else if (preset === 'q_h_f') {
-    const quarter = Math.round((basePrice * 0.35) / 10) * 10 || 90;
-    const half = Math.round((basePrice * 0.6) / 10) * 10 || 160;
-    addVariationOptionRow('Quarter', quarter);
-    addVariationOptionRow('Half', half);
-    addVariationOptionRow('Full', basePrice || 280);
+    const halfExtra = Math.round((basePrice * 0.35) / 10) * 10 || 40;
+    const fullExtra = Math.round((basePrice * 0.75) / 10) * 10 || 90;
+    addVariationOptionRow('Quarter', 0);
+    addVariationOptionRow('Half', halfExtra);
+    addVariationOptionRow('Full', fullExtra);
   }
 
   syncFormToJson();
@@ -610,7 +622,7 @@ function syncFormToJson() {
     if (label) {
       values.push({
         label: label,
-        optionPrice: String(priceVal || "0")
+        optionPrice: String(priceVal !== "" && priceVal !== null && priceVal !== undefined ? priceVal : "0")
       });
     }
   });
@@ -669,11 +681,40 @@ function saveVariationModal() {
 
   const rawJson = document.getElementById('varRawJson').value.trim();
   try {
-    const parsed = JSON.parse(rawJson || '[]');
+    let parsed = JSON.parse(rawJson || '[]');
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      parsed.forEach(group => {
+        if (Array.isArray(group.values) && group.values.length > 0) {
+          const numPrices = group.values.map(v => parseFloat(v.optionPrice) || 0);
+          const minP = Math.min(...numPrices);
+          const maxP = Math.max(...numPrices);
+
+          if (minP === maxP && minP > 0) {
+            // All options have identical absolute price (e.g. 72)
+            state.extractedItems[editingVarIndex].price = minP;
+            group.values.forEach(v => { v.optionPrice = "0"; });
+          } else if (minP > 0) {
+            // Absolute prices entered (e.g. 50 and 70)
+            state.extractedItems[editingVarIndex].price = minP;
+            group.values.forEach(v => {
+              const delta = (parseFloat(v.optionPrice) || 0) - minP;
+              v.optionPrice = String(Math.round(delta * 100) / 100);
+            });
+          } else {
+            // Already deltas (minP is 0)
+            group.values.forEach(v => {
+              const delta = parseFloat(v.optionPrice) || 0;
+              v.optionPrice = String(Math.round(delta * 100) / 100);
+            });
+          }
+        }
+      });
+    }
+
     state.extractedItems[editingVarIndex].variations = Array.isArray(parsed) ? parsed : [];
     renderTable(state.extractedItems);
     closeVariationModal();
-    showToast(`Saved variations for "${state.extractedItems[editingVarIndex].name}"`, "success");
+    showToast(`Saved variations with delta pricing for "${state.extractedItems[editingVarIndex].name}"`, "success");
   } catch (err) {
     showToast("Invalid JSON in advanced editor. Please fix formatting.", "error");
   }
