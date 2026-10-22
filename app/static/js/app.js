@@ -210,8 +210,8 @@ function setupDragAndDrop() {
   ['dragenter', 'dragover'].forEach(eventName => {
     dropzone.addEventListener(eventName, (e) => {
       e.preventDefault();
-      dropzone.style.borderColor = 'var(--accent-primary)';
-      dropzone.style.background = 'rgba(99, 102, 241, 0.1)';
+      dropzone.style.borderColor = 'var(--company-teal)';
+      dropzone.style.background = 'var(--company-mint)';
     });
   });
 
@@ -346,7 +346,12 @@ function renderTable(items) {
 
   tbody.innerHTML = items.map((item, idx) => {
     // Format variations badge
-    let varBadge = `<span class="text-muted" style="font-size:0.75rem; text-decoration: underline dotted;">+ Add Sizes</span>`;
+    let varBadge = `
+      <button type="button" class="add-var-btn">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Add Sizes
+      </button>
+    `;
     if (Array.isArray(item.variations) && item.variations.length > 0) {
       const summary = item.variations.flatMap(g => 
         (g.values || []).map(v => {
@@ -354,7 +359,12 @@ function renderTable(items) {
           return `${v.label} (+₹${delta})`;
         })
       ).join(', ');
-      varBadge = `<span class="var-tag" title="Click to edit variations: ${escapeHtml(JSON.stringify(item.variations))}">${escapeHtml(summary || 'Configured')}</span>`;
+      varBadge = `
+        <div class="var-tag" title="Click to edit variations: ${escapeHtml(JSON.stringify(item.variations))}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+          <span>${escapeHtml(summary || 'Configured')}</span>
+        </div>
+      `;
     }
 
     const isVeg = (String(item.veg).toLowerCase() === 'yes');
@@ -362,23 +372,41 @@ function renderTable(items) {
     return `
       <tr data-index="${idx}">
         <td>
-          <div style="display:flex; align-items:center;">
+          <div class="cat-cell-wrapper">
             <input 
               type="text" 
+              class="table-input cat-input"
               list="categoriesDatalist" 
               value="${escapeHtml(item.category_name || '')}" 
               placeholder="Search category or ID..."
               onchange="handleCategoryChange(${idx}, this.value)"
-              style="font-weight: 500;"
+              title="${escapeHtml(item.category_name || '')}"
             >
             <span class="cat-badge" id="catBadge_${idx}" title="${item.category_id ? 'Turtu Category ID: ' + item.category_id : 'Unmapped Category'}">${escapeHtml(item.category_id || '-')}</span>
           </div>
         </td>
         <td>
-          <input type="text" value="${escapeHtml(item.name || '')}" onchange="updateItemField(${idx}, 'name', this.value)" placeholder="Dish title">
+          <input 
+            type="text" 
+            class="table-input" 
+            value="${escapeHtml(item.name || '')}" 
+            onchange="updateItemField(${idx}, 'name', this.value)" 
+            placeholder="Dish title"
+            title="${escapeHtml(item.name || '')}"
+          >
         </td>
-        <td style="max-width: 90px;">
-          <input type="number" step="1" value="${item.price !== null && item.price !== undefined ? item.price : ''}" onchange="updateItemField(${idx}, 'price', parseFloat(this.value) || 0)">
+        <td>
+          <div class="price-input-wrapper">
+            <span class="currency-prefix">₹</span>
+            <input 
+              type="number" 
+              step="1" 
+              min="0"
+              value="${item.price !== null && item.price !== undefined ? item.price : ''}" 
+              onchange="updateItemField(${idx}, 'price', parseFloat(this.value) || 0)"
+              placeholder="0"
+            >
+          </div>
         </td>
         <td>
           <select class="dietary-select" onchange="updateItemField(${idx}, 'veg', this.value)">
@@ -387,16 +415,23 @@ function renderTable(items) {
           </select>
         </td>
         <td>
-          <div style="cursor:pointer;" onclick="openVariationModal(${idx})" title="Click to edit portion sizes">
+          <div class="var-cell-container" onclick="openVariationModal(${idx})" title="Click to edit portion sizes">
             ${varBadge}
           </div>
         </td>
         <td>
-          <input type="text" value="${escapeHtml(item.description || '')}" onchange="updateItemField(${idx}, 'description', this.value)" placeholder="Optional description">
+          <input 
+            type="text" 
+            class="table-input" 
+            value="${escapeHtml(item.description || '')}" 
+            onchange="updateItemField(${idx}, 'description', this.value)" 
+            placeholder="Optional description"
+            title="${escapeHtml(item.description || '')}"
+          >
         </td>
         <td style="text-align: center;">
-          <button class="btn-del-row" onclick="deleteRow(${idx})" title="Delete row">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          <button type="button" class="btn-del-row" onclick="deleteRow(${idx})" title="Delete row">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
           </button>
         </td>
       </tr>

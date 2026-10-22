@@ -6,7 +6,7 @@
   <title>MenuFlow AI & Portal Connector</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800&family=Poppins:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+Kannada:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/styles.css?v={{ cache_id }}">
 </head>
 <body>
@@ -223,13 +223,13 @@
               <table id="menuItemsTable">
                 <thead>
                   <tr>
-                    <th style="min-width: 170px;">Category & ID</th>
-                    <th style="min-width: 170px;">Item Name</th>
-                    <th style="max-width: 90px;">Price (₹)</th>
-                    <th style="min-width: 110px;">Dietary</th>
-                    <th style="min-width: 150px;">Variations / Sizes</th>
-                    <th>Description</th>
-                    <th style="width: 40px;"></th>
+                    <th style="width: 250px; min-width: 250px;">Category & Turtu ID</th>
+                    <th style="width: 230px; min-width: 230px;">Item Name</th>
+                    <th style="width: 110px; min-width: 110px;">Price (₹)</th>
+                    <th style="width: 125px; min-width: 125px;">Dietary</th>
+                    <th style="width: 290px; min-width: 290px;">Variations / Sizes</th>
+                    <th style="width: 230px; min-width: 230px;">Description</th>
+                    <th style="width: 45px; min-width: 45px; text-align: center;"></th>
                   </tr>
                 </thead>
                 <tbody id="menuItemsBody">
@@ -269,7 +269,7 @@
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('reg_large')">Regular / Large</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('flavors_same_price')">Flavors / Varieties (+₹0)</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('q_h_f')">Quarter / Half / Full</button>
-                <button type="button" class="preset-chip" onclick="applyVariationPreset('clear')" style="color: var(--danger); border-color: rgba(239,68,68,0.25);">Clear Variations</button>
+                <button type="button" class="preset-chip" onclick="applyVariationPreset('clear')" style="color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg);">Clear Variations</button>
               </div>
             </div>
 
@@ -299,7 +299,7 @@
             <div style="margin-bottom: 12px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin: 0;">Options & Delta Extra Pricing</label>
-                <span style="font-size: 0.72rem; color: var(--accent-primary);">Base variation = ₹0, other variations = extra difference</span>
+                <span style="font-size: 0.72rem; color: var(--company-teal); font-weight: 600;">Base variation = ₹0, other variations = extra delta</span>
               </div>
               <div id="variationOptionsList">
                 <!-- Populated dynamically via JS -->
@@ -310,8 +310,8 @@
             </div>
 
             <!-- Advanced Raw JSON toggle -->
-            <details style="margin-top: 14px; background: rgba(0,0,0,0.25); border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 8px 12px;">
-              <summary style="font-size: 0.75rem; color: var(--accent-primary); cursor: pointer; font-weight: 500;">
+            <details style="margin-top: 14px; background: var(--company-wash); border: 1px solid var(--company-light); border-radius: var(--radius-sm); padding: 8px 12px;">
+              <summary style="font-size: 0.75rem; color: var(--company-teal); cursor: pointer; font-weight: 600;">
                 Advanced: View / Edit Raw JSON
               </summary>
               <div style="margin-top: 8px;">
@@ -352,11 +352,11 @@
               </div>
             </div>
 
-            <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px;">
+            <div style="background: var(--company-mint); border: 1px solid var(--company-light); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px;">
               <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4;">
                 💡 <strong>How it works:</strong> Your key is stored securely in your local browser session and sent with extraction requests to process the menu.
               </p>
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--accent-primary); margin-top: 6px; text-decoration: underline;">
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--company-teal); font-weight: 600; margin-top: 6px; text-decoration: underline;">
                 Get a free Gemini API key from Google AI Studio &rarr;
               </a>
             </div>
