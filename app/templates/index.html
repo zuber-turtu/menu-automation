@@ -268,29 +268,36 @@
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('s_m_l')">Small / Med / Large</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('reg_large')">Regular / Large</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('flavors_same_price')">Flavors / Varieties (+₹0)</button>
+                <button type="button" class="preset-chip" onclick="applyVariationPreset('addon')" style="color: var(--company-teal); font-weight: 700; border-color: var(--company-teal); background: var(--company-wash);">+ Add-on (Multi/Optional)</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('q_h_f')">Quarter / Half / Full</button>
                 <button type="button" class="preset-chip" onclick="applyVariationPreset('clear')" style="color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg);">Clear Variations</button>
               </div>
             </div>
 
+            <!-- Multi-Group Tabs Bar (When dish has multiple variation groups like Portion AND Add-ons) -->
+            <div id="varGroupsBar" style="display: none; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px dashed var(--company-light); align-items: center; justify-content: space-between;">
+              <div id="varGroupTabs" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="addNewVariationGroup()" style="font-size: 0.75rem; padding: 4px 9px;">+ Add Group</button>
+            </div>
+
             <!-- Group settings -->
-            <div style="display: grid; grid-template-columns: 2fr 1.2fr 1fr; gap: 12px; margin-bottom: 16px;">
+            <div style="display: grid; grid-template-columns: 2fr 1.3fr 1fr; gap: 12px; margin-bottom: 16px;">
               <div>
                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Group Title</label>
-                <input type="text" id="varGroupName" class="form-control" placeholder="e.g. Portion, Size, Variation" value="Portion" style="padding: 7px 10px; font-size: 0.85rem;">
+                <input type="text" id="varGroupName" class="form-control" placeholder="e.g. Portion, Size, Add-on" value="Portion" oninput="handleVarGroupNameChange(this.value)" style="padding: 7px 10px; font-size: 0.85rem;">
               </div>
               <div>
                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Selection Type</label>
-                <select id="varGroupType" class="form-control" style="padding: 7px 10px; font-size: 0.85rem;">
-                  <option value="single">Single (Choose 1)</option>
-                  <option value="multiple">Multi (Multiple)</option>
+                <select id="varGroupType" class="form-control" style="padding: 7px 10px; font-size: 0.85rem;" onchange="handleVarGroupTypeChange(this.value)">
+                  <option value="single">Single (Choose 1 - Mandatory)</option>
+                  <option value="multiple">Multi (Add-on - Optional)</option>
                 </select>
               </div>
               <div>
                 <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">Required</label>
-                <select id="varGroupRequired" class="form-control" style="padding: 7px 10px; font-size: 0.85rem;">
-                  <option value="off">Off (Optional)</option>
+                <select id="varGroupRequired" class="form-control" style="padding: 7px 10px; font-size: 0.85rem;" onchange="syncFormToJson()">
                   <option value="on">On (Mandatory)</option>
+                  <option value="off">Off (Optional)</option>
                 </select>
               </div>
             </div>
@@ -298,8 +305,8 @@
             <!-- Option rows -->
             <div style="margin-bottom: 12px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin: 0;">Options & Delta Extra Pricing</label>
-                <span style="font-size: 0.72rem; color: var(--company-teal); font-weight: 600;">Base variation = ₹0, other variations = extra delta</span>
+                <label style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin: 0;">Options & Extra Pricing</label>
+                <span id="varPricingHint" style="font-size: 0.72rem; color: var(--company-teal); font-weight: 600;">Single = Base ₹0 + deltas (Mandatory) • Multi = Addon extra ₹ (Optional)</span>
               </div>
               <div id="variationOptionsList">
                 <!-- Populated dynamically via JS -->
