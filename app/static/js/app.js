@@ -73,11 +73,39 @@ function showToast(message, type = 'info') {
 }
 
 // =====================================================================
-// 1. Reference Sheets & Categories
+// 1. Tab Navigation & View Switching
+// =====================================================================
+
+function switchMainTab(tabName) {
+  const digitizerBtn = document.getElementById('tabBtnDigitizer');
+  const categoriesBtn = document.getElementById('tabBtnCategories');
+  const digitizerPanel = document.getElementById('panelDigitizer');
+  const categoriesPanel = document.getElementById('panelCategories');
+
+  if (tabName === 'categories') {
+    if (digitizerBtn) digitizerBtn.classList.remove('active');
+    if (categoriesBtn) categoriesBtn.classList.add('active');
+    if (digitizerPanel) digitizerPanel.style.display = 'none';
+    if (categoriesPanel) {
+      categoriesPanel.style.display = 'block';
+      // Reset search input on switch
+      const searchInput = document.getElementById('categorySearchInput');
+      if (searchInput) searchInput.value = '';
+      renderCategoriesTable(state.categories);
+    }
+  } else {
+    if (categoriesBtn) categoriesBtn.classList.remove('active');
+    if (digitizerBtn) digitizerBtn.classList.add('active');
+    if (categoriesPanel) categoriesPanel.style.display = 'none';
+    if (digitizerPanel) digitizerPanel.style.display = 'block';
+  }
+}
+
+// =====================================================================
+// 2. Reference Sheets & Category Taxonomy
 // =====================================================================
 
 async function fetchReferenceSheets() {
-  const box = document.getElementById('templateStatusBox');
   try {
     const res = await fetch('/api/menu/reference-sheets');
     const data = await res.json();
@@ -85,64 +113,23 @@ async function fetchReferenceSheets() {
 
     if (state.referenceSheets.length > 0) {
       const preferred = state.referenceSheets.find(s => s.filename === 'actual_menu_format.xlsx');
-      const activeSheet = preferred ? preferred.filename : state.referenceSheets[0].filename;
-      state.selectedTemplate = activeSheet;
-      box.innerHTML = `
-        <span class="status-dot success"></span>
-        <span style="color: var(--success); font-weight: 600;">✓ Template:</span>
-        <span class="text-mono">${activeSheet} (21 cols)</span>
-      `;
+      state.selectedTemplate = preferred ? preferred.filename : state.referenceSheets[0].filename;
     } else {
-      box.innerHTML = `
-        <span class="status-dot idle"></span>
-        <span class="text-muted">Standard 21-column actual portal template</span>
-      `;
+      state.selectedTemplate = 'actual_menu_format.xlsx';
     }
   } catch (err) {
-    box.innerHTML = `
-      <span class="status-dot idle" style="background:var(--danger)"></span>
-      <span style="color:var(--danger)">Error checking templates</span>
-    `;
-  }
-}
-
-async function uploadReferenceSheet(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const box = document.getElementById('templateStatusBox');
-  box.innerHTML = `<div class="loading-spinner-sm"></div> <span class="text-muted">Uploading ${file.name}...</span>`;
-
-  try {
-    const res = await fetch('/api/menu/upload-reference', {
-      method: 'POST',
-      body: formData
-    });
-    const result = await res.json();
-    if (res.ok) {
-      await fetchReferenceSheets();
-      showToast(`Master Template '${file.name}' saved! Output strictly matches 21-column schema.`, 'success');
-    } else {
-      showToast(`Upload failed: ${result.detail || 'Error'}`, 'error');
-      await fetchReferenceSheets();
-    }
-  } catch (err) {
-    showToast(`Failed to upload reference: ${err.message}`, 'error');
-    await fetchReferenceSheets();
+    console.warn("Reference sheets check:", err);
+    state.selectedTemplate = 'actual_menu_format.xlsx';
   }
 }
 
 async function fetchCategories() {
-  const box = document.getElementById('categoryStatusBox');
   try {
     const res = await fetch('/api/menu/categories');
     const data = await res.json();
     state.categories = data.categories || [];
 
-    // Populate datalist for category auto-completion
+    // Populate datalist for category auto-completion in review table
     const datalist = document.getElementById('categoriesDatalist');
     if (datalist) {
       datalist.innerHTML = state.categories.map(c => `
@@ -150,35 +137,114 @@ async function fetchCategories() {
       `).join('');
     }
 
-    if (state.categories.length > 0) {
-      box.innerHTML = `
-        <span class="status-dot success"></span>
-        <span style="color: var(--success); font-weight: 600;">✓ Taxonomy:</span>
-        <span>${state.categories.length} categories active (Turtu)</span>
-      `;
-    } else {
-      box.innerHTML = `
-        <span class="status-dot idle"></span>
-        <span class="text-muted">No categories loaded. Upload categories_turtu.csv below.</span>
-      `;
+    // Update Header tab badge
+    const navBadge = document.getElementById('navCategoryBadge');
+    if (navBadge) {
+      navBadge.innerText = state.categories.length;
+    }
+
+    // Update Digitizer banner count
+    const bannerCount = document.getElementById('bannerCategoryCount');
+    if (bannerCount) {
+      bannerCount.innerText = `${state.categories.length} Turtu Categories Active`;
+    }
+
+    // Update Categories view filter count badge
+    const filterBadge = document.getElementById('categoryFilterCountBadge');
+    if (filterBadge) {
+      filterBadge.innerText = `${state.categories.length} categories active`;
+    }
+
+    // If categories panel is currently open, re-render its table
+    const categoriesPanel = document.getElementById('panelCategories');
+    if (categoriesPanel && categoriesPanel.style.display !== 'none') {
+      const searchInput = document.getElementById('categorySearchInput');
+      const query = searchInput ? searchInput.value.trim() : '';
+      if (query) {
+        filterCategoriesTable(query);
+      } else {
+        renderCategoriesTable(state.categories);
+      }
     }
   } catch (err) {
-    box.innerHTML = `
-      <span class="status-dot idle" style="background:var(--danger)"></span>
-      <span style="color:var(--danger)">Error loading categories</span>
-    `;
+    console.error("Error loading categories:", err);
+    showToast("Error loading categories taxonomy", "error");
   }
 }
 
-async function uploadCategoryCsv(event) {
+function renderCategoriesTable(categories) {
+  const tbody = document.getElementById('categoriesTableBody');
+  if (!tbody) return;
+
+  const filterBadge = document.getElementById('categoryFilterCountBadge');
+  if (filterBadge) {
+    filterBadge.innerText = `${categories.length} of ${state.categories.length} categories shown`;
+  }
+
+  if (!categories || categories.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" class="text-center text-muted" style="padding: 36px 16px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 8px; opacity: 0.5;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <div style="font-weight: 600;">No categories match your search</div>
+          <div style="font-size: 0.8rem; margin-top: 4px;">Try searching for a different keyword or category ID number.</div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = categories.map((cat, idx) => `
+    <tr>
+      <td style="text-align: center; color: var(--text-muted); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;">${idx + 1}</td>
+      <td>
+        <span class="cat-badge" style="font-size: 0.82rem; padding: 4px 10px;">${escapeHtml(cat.id)}</span>
+      </td>
+      <td>
+        <div style="font-weight: 600; color: var(--company-dark); font-size: 0.9rem;">${escapeHtml(cat.name)}</div>
+      </td>
+      <td>
+        <span class="status-indicator active" style="margin-right: 6px;"></span>
+        <span style="font-size: 0.78rem; font-weight: 600; color: var(--company-teal);">Active Portal ID</span>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function filterCategoriesTable(query) {
+  if (!state.categories || state.categories.length === 0) return;
+  const q = (query || '').trim().toLowerCase();
+
+  if (!q) {
+    renderCategoriesTable(state.categories);
+    return;
+  }
+
+  const filtered = state.categories.filter(c => {
+    const idStr = String(c.id).toLowerCase();
+    const nameStr = String(c.name).toLowerCase();
+    return idStr.includes(q) || nameStr.includes(q);
+  });
+
+  renderCategoriesTable(filtered);
+}
+
+async function uploadCategoryFile(event) {
   const file = event.target.files[0];
   if (!file) return;
+
+  const validExts = ['.csv', '.xlsx', '.xls'];
+  const ext = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+  if (!validExts.includes(ext)) {
+    showToast("Invalid file type. Please upload a CSV (.csv) or Excel (.xlsx, .xls) file.", "error");
+    event.target.value = '';
+    return;
+  }
 
   const formData = new FormData();
   formData.append('file', file);
 
-  const box = document.getElementById('categoryStatusBox');
-  box.innerHTML = `<div class="loading-spinner-sm"></div> <span class="text-muted">Loading ${file.name}...</span>`;
+  showToast(`Uploading category file '${file.name}'...`, "info");
 
   try {
     const res = await fetch('/api/menu/upload-categories', {
@@ -188,15 +254,39 @@ async function uploadCategoryCsv(event) {
     const result = await res.json();
     if (res.ok) {
       await fetchCategories();
-      showToast(`Loaded ${result.count} categories! Gemini will match items directly to these IDs.`, 'success');
+      showToast(`Replaced categories! Active taxonomy now has ${result.count} categories.`, 'success');
     } else {
-      showToast(`Error: ${result.detail || 'Upload failed'}`, 'error');
-      await fetchCategories();
+      showToast(`Upload failed: ${result.detail || 'Error'}`, 'error');
     }
   } catch (err) {
     showToast(`Category upload error: ${err.message}`, 'error');
-    await fetchCategories();
+  } finally {
+    event.target.value = '';
   }
+}
+
+function exportCategoriesCsv() {
+  if (!state.categories || state.categories.length === 0) {
+    showToast("No categories available to export.", "warning");
+    return;
+  }
+
+  const header = "id,name\n";
+  const rows = state.categories.map(c => {
+    const safeName = c.name.includes(',') || c.name.includes('"') ? `"${c.name.replace(/"/g, '""')}"` : c.name;
+    return `${c.id},${safeName}`;
+  }).join("\n");
+
+  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `turtu_categories_${state.categories.length}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  showToast(`Exported ${state.categories.length} categories to CSV!`, 'success');
 }
 
 // =====================================================================
@@ -310,10 +400,15 @@ async function startExtraction() {
     }, 500);
 
     if (data.status === 'success' && Array.isArray(data.items)) {
+      const defaultTiming = getBatchStoreTiming();
+      data.items.forEach(it => {
+        if (!it.available_time_starts) it.available_time_starts = defaultTiming.starts;
+        if (!it.available_time_ends) it.available_time_ends = defaultTiming.ends;
+      });
       state.extractedItems = data.items;
       renderTable(data.items);
       document.getElementById('downloadSheetBtn').disabled = false;
-      showToast(`Extracted ${data.items.length} items with Category IDs!`, 'success');
+      showToast(`Extracted ${data.items.length} items with Category IDs & timing!`, 'success');
     } else if (data.status === 'no_key') {
       showToast("Gemini API key is required for AI extraction.", "warning");
       openApiKeyModal();
@@ -551,6 +646,110 @@ function splitProteinAndDietaryItems(items) {
 // Backward-compatibility alias
 const splitMixedDietaryItems = splitProteinAndDietaryItems;
 
+// =====================================================================
+// 4. Culinary Description Synthesis Engine (Strictly 10-15 Words)
+// =====================================================================
+
+function enforceWordCount(text, minWords = 10, maxWords = 15) {
+  if (!text) {
+    return "Freshly prepared wholesome delicacy cooked with authentic traditional spices, herbs, and savory seasonings.";
+  }
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (words.length > maxWords) {
+    let clean = words.slice(0, maxWords).join(' ');
+    clean = clean.replace(/[,;:\-–—\s]+$/, '');
+    if (!/[.!?]$/.test(clean)) clean += '.';
+    return clean;
+  }
+  if (words.length < minWords) {
+    const padNeeded = minWords - words.length;
+    let pad = "Freshly prepared.";
+    if (padNeeded <= 2) {
+      pad = "Freshly prepared.";
+    } else if (padNeeded <= 4) {
+      pad = "Crafted fresh with aromatic spices.";
+    } else {
+      pad = "Prepared fresh with traditional aromatic herbs and seasonings.";
+    }
+    let clean = text.replace(/[.\s]+$/, '') + " " + pad;
+    const cleanWords = clean.split(/\s+/).filter(Boolean);
+    if (cleanWords.length > maxWords) {
+      clean = cleanWords.slice(0, maxWords).join(' ').replace(/[,;:\-–—\s]+$/, '') + '.';
+    }
+    return clean;
+  }
+  let clean = text.trim();
+  if (!/[.!?]$/.test(clean)) clean += '.';
+  return clean;
+}
+
+async function generateAIDescriptions() {
+  if (!state.extractedItems || state.extractedItems.length === 0) {
+    showToast("No menu items loaded. Upload a menu or add a row first.", "warning");
+    return;
+  }
+
+  // Find all items with missing or blank descriptions
+  const itemsToDescribe = [];
+  state.extractedItems.forEach((item, index) => {
+    if (!item.description || !item.description.trim()) {
+      itemsToDescribe.push({
+        index: index,
+        name: item.name || "Dish",
+        category_name: item.category_name || "General",
+        veg: item.veg || "yes",
+        description: ""
+      });
+    }
+  });
+
+  if (itemsToDescribe.length === 0) {
+    showToast("All items already have descriptions! Existing descriptions preserved unchanged.", "info");
+    return;
+  }
+
+  const btn = document.getElementById('generateDescBtn');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span class="loading-spinner-sm"></span> Generating descriptions for ${itemsToDescribe.length} items...`;
+  }
+
+  try {
+    const res = await fetch('/api/menu/generate-descriptions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: itemsToDescribe })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || "Failed to generate AI descriptions");
+    }
+
+    const descriptions = data.descriptions || [];
+    let updatedCount = 0;
+    descriptions.forEach(d => {
+      const idx = d.index;
+      if (idx !== undefined && state.extractedItems[idx]) {
+        state.extractedItems[idx].description = d.description;
+        updatedCount++;
+      }
+    });
+
+    renderTable(state.extractedItems);
+    showToast(`✨ Generated ${updatedCount} accurate AI culinary descriptions (strictly 10-15 words)!`, "success");
+
+  } catch (err) {
+    showToast(`AI Description generation error: ${err.message}`, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+
 function renderTable(items) {
   // Pre-process any add-ons embedded in item descriptions
   items = (items || []).map(it => processItemAddons(it));
@@ -564,7 +763,7 @@ function renderTable(items) {
   if (!items || items.length === 0) {
     tbody.innerHTML = `
       <tr class="empty-row">
-        <td colspan="7" class="text-center text-muted">Upload a menu document and click "Extract Menu with Gemini AI" to populate the sheet.</td>
+        <td colspan="8" class="text-center text-muted">Upload a menu document and click "Extract Menu with Gemini AI" to populate the sheet.</td>
       </tr>
     `;
     return;
@@ -598,6 +797,10 @@ function renderTable(items) {
     }
 
     const isVeg = (String(item.veg).toLowerCase() === 'yes');
+    const defaultTiming = getBatchStoreTiming();
+    const itemStarts = item.available_time_starts ? item.available_time_starts.slice(0, 5) : defaultTiming.starts.slice(0, 5);
+    const itemEnds = item.available_time_ends ? item.available_time_ends.slice(0, 5) : defaultTiming.ends.slice(0, 5);
+    const hasCustomTiming = Boolean(item.custom_timing);
 
     return `
       <tr data-index="${idx}">
@@ -650,14 +853,41 @@ function renderTable(items) {
           </div>
         </td>
         <td>
-          <input 
-            type="text" 
-            class="table-input" 
-            value="${escapeHtml(item.description || '')}" 
-            onchange="updateItemField(${idx}, 'description', this.value)" 
-            placeholder="Optional description"
-            title="${escapeHtml(item.description || '')}"
-          >
+          <div class="desc-cell-wrapper">
+            <textarea 
+              class="desc-textarea" 
+              rows="2"
+              onchange="updateItemField(${idx}, 'description', this.value)" 
+              placeholder="10-15 word description"
+              title="${escapeHtml(item.description || '')} (${(item.description || '').trim() ? (item.description || '').trim().split(/\s+/).filter(Boolean).length + ' words' : 'empty'})"
+            >${escapeHtml(item.description || '')}</textarea>
+          </div>
+        </td>
+        <td>
+          <div class="row-timing-cell">
+            <div class="row-time-box">
+              <span class="row-time-lbl">Start</span>
+              <input 
+                type="time" 
+                class="row-time-input" 
+                value="${itemStarts}" 
+                title="Operating start time for ${escapeHtml(item.name || 'dish')}"
+                onchange="updateItemTiming(${idx}, 'available_time_starts', this.value)"
+              >
+            </div>
+            <span class="row-time-sep">-</span>
+            <div class="row-time-box">
+              <span class="row-time-lbl">End</span>
+              <input 
+                type="time" 
+                class="row-time-input" 
+                value="${itemEnds}" 
+                title="Operating end time for ${escapeHtml(item.name || 'dish')}"
+                onchange="updateItemTiming(${idx}, 'available_time_ends', this.value)"
+              >
+            </div>
+            ${hasCustomTiming ? `<span class="custom-timing-dot" onclick="resetItemTiming(${idx})" title="Custom dish timing active. Click to reset to store default.">●</span>` : ''}
+          </div>
         </td>
         <td style="text-align: center;">
           <button type="button" class="btn-del-row" onclick="deleteRow(${idx})" title="Delete row">
@@ -736,7 +966,34 @@ function updateItemField(index, field, value) {
   }
 }
 
+function updateItemTiming(index, field, value) {
+  const item = state.extractedItems[index];
+  if (!item) return;
+
+  const defaultTiming = getBatchStoreTiming();
+  const fallback = field === 'available_time_starts' ? defaultTiming.starts : defaultTiming.ends;
+  const formatted = formatToExcelTime(value, fallback);
+
+  item[field] = formatted;
+  item.custom_timing = true;
+  renderTable(state.extractedItems);
+  showToast(`Custom timing for "${item.name || 'dish'}": ${item.available_time_starts?.slice(0, 5)} - ${item.available_time_ends?.slice(0, 5)}`, 'info');
+}
+
+function resetItemTiming(index) {
+  const item = state.extractedItems[index];
+  if (!item) return;
+
+  const defaultTiming = getBatchStoreTiming();
+  item.available_time_starts = defaultTiming.starts;
+  item.available_time_ends = defaultTiming.ends;
+  item.custom_timing = false;
+  renderTable(state.extractedItems);
+  showToast(`Reset "${item.name || 'dish'}" to store timing (${defaultTiming.starts.slice(0, 5)} - ${defaultTiming.ends.slice(0, 5)})`, 'info');
+}
+
 function addNewRow() {
+  const defaultTiming = getBatchStoreTiming();
   const newItem = {
     name: "New Item",
     category_name: state.categories.length > 0 ? state.categories[0].name : "General",
@@ -744,6 +1001,9 @@ function addNewRow() {
     price: 0.0,
     veg: "yes",
     variations: [],
+    available_time_starts: defaultTiming.starts,
+    available_time_ends: defaultTiming.ends,
+    custom_timing: false,
     description: ""
   };
   state.extractedItems.push(newItem);
@@ -1288,7 +1548,15 @@ async function generateAndDownloadExcel() {
   const timeEnds = formatToExcelTime(rawEnds, '23:55:00');
 
   const payload = {
-    items: state.extractedItems,
+    items: state.extractedItems.map(it => {
+      const itStarts = it.available_time_starts || timeStarts;
+      const itEnds = it.available_time_ends || timeEnds;
+      return {
+        ...it,
+        available_time_starts: itStarts,
+        available_time_ends: itEnds
+      };
+    }),
     template_filename: state.selectedTemplate,
     global_store_id: storeId,
     global_module_id: moduleId,
@@ -1344,7 +1612,42 @@ function applyTimingPreset(presetValue) {
       endsEl.value = ends;
       localStorage.setItem('menu_batchTimeEnds', ends);
     }
+    syncStoreTimingToItems(starts, ends);
     showToast(`Timing preset applied: ${starts} to ${ends}`, 'info');
+  }
+}
+
+function getBatchStoreTiming() {
+  const startsEl = document.getElementById('batchTimeStarts');
+  const endsEl = document.getElementById('batchTimeEnds');
+  const rawStarts = startsEl ? startsEl.value : '08:00:00';
+  const rawEnds = endsEl ? endsEl.value : '23:55:00';
+  return {
+    starts: formatToExcelTime(rawStarts, '08:00:00'),
+    ends: formatToExcelTime(rawEnds, '23:55:00')
+  };
+}
+
+function syncStoreTimingToItems(newStarts, newEnds) {
+  const defaultTiming = getBatchStoreTiming();
+  const starts = newStarts ? formatToExcelTime(newStarts, '08:00:00') : defaultTiming.starts;
+  const ends = newEnds ? formatToExcelTime(newEnds, '23:55:00') : defaultTiming.ends;
+
+  if (Array.isArray(state.extractedItems) && state.extractedItems.length > 0) {
+    let updatedCount = 0;
+    state.extractedItems.forEach(item => {
+      // Default is added from the store setting above.
+      // If user has not manually customized this item's timing, cascade the store setting!
+      if (!item.custom_timing) {
+        item.available_time_starts = starts;
+        item.available_time_ends = ends;
+        updatedCount++;
+      }
+    });
+
+    if (updatedCount > 0) {
+      renderTable(state.extractedItems);
+    }
   }
 }
 

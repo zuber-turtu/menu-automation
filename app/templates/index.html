@@ -29,6 +29,19 @@
         </div>
       </div>
 
+      <!-- Segmented Navigation Tabs -->
+      <nav class="header-nav-tabs">
+        <button type="button" id="tabBtnDigitizer" class="nav-tab-btn active" onclick="switchMainTab('digitizer')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          Menu Digitizer
+        </button>
+        <button type="button" id="tabBtnCategories" class="nav-tab-btn" onclick="switchMainTab('categories')">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          Categories Taxonomy
+          <span class="nav-tab-counter" id="navCategoryBadge">{{ category_count }}</span>
+        </button>
+      </nav>
+
       <div class="header-actions">
         <!-- API Key Status Pill -->
         <div class="api-status-pill" id="apiKeyStatusBadge" onclick="openApiKeyModal()" title="Click to view or configure Gemini API Key">
@@ -45,76 +58,28 @@
     <main class="main-content">
       
       <!-- TAB 1: MENU AUTOMATION SHEET GENERATOR -->
-      <section id="panelGenerator" class="tab-panel active">
-        <!-- Top Control Bar -->
-        <div class="control-grid">
-          <!-- Step 1: Master Reference & Category Taxonomy -->
-          <div class="card glass">
+      <section id="panelDigitizer" class="tab-panel active">
+        <!-- Top Control Row: Menu Upload & Batch Store Settings (Horizontal) -->
+        <div class="digitizer-top-row">
+
+          <!-- Left Column: Upload Restaurant Menu Document -->
+          <div class="card glass menu-upload-card">
             <div class="card-header">
               <span class="step-num">1</span>
               <div>
-                <h3>Reference & Category Mapping</h3>
-                <p>Template spreadsheet & Turtu category taxonomy for automatic ID mapping.</p>
-              </div>
-            </div>
-            <div class="card-body">
-              <div class="status-stack">
-                <div class="status-box" id="templateStatusBox">
-                  {% if active_template %}
-                    <span class="status-dot success"></span>
-                    <span style="color: var(--success); font-weight: 600;">✓ Template:</span>
-                    <span class="text-mono">{{ active_template }} (21 cols)</span>
-                  {% else %}
-                    <span class="status-dot idle"></span>
-                    <span class="text-muted">Standard 21-column actual portal template</span>
-                  {% endif %}
-                </div>
-
-                <div class="status-box" id="categoryStatusBox">
-                  {% if category_count > 0 %}
-                    <span class="status-dot success"></span>
-                    <span style="color: var(--success); font-weight: 600;">✓ Taxonomy:</span>
-                    <span>{{ category_count }} categories active (Turtu)</span>
-                  {% else %}
-                    <span class="status-dot idle"></span>
-                    <span class="text-muted">No categories loaded. Upload categories_turtu.csv below.</span>
-                  {% endif %}
-                </div>
-              </div>
-
-              <div class="dual-upload-actions">
-                <label class="btn btn-secondary btn-file">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  Template (.xlsx)
-                  <input type="file" id="refSheetInput" accept=".xlsx" onchange="uploadReferenceSheet(event)" style="display:none;">
-                </label>
-                <label class="btn btn-secondary btn-file">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                  Categories (.csv)
-                  <input type="file" id="categoryFileInput" accept=".csv" onchange="uploadCategoryCsv(event)" style="display:none;">
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <!-- Step 2: Upload Menu Document -->
-          <div class="card glass">
-            <div class="card-header">
-              <span class="step-num">2</span>
-              <div>
-                <h3>Menu PDF or Image</h3>
-                <p>Upload restaurant menu (PDF, PNG, JPG) to parse items with Gemini AI.</p>
+                <h3>Upload Menu Document</h3>
+                <p>Upload PDF or image (PNG, JPG, WEBP). Gemini will parse dishes & prices.</p>
               </div>
             </div>
             <div class="card-body">
               <div class="dropzone" id="menuDropzone" onclick="document.getElementById('menuFileInput').click()">
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
                   <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
                   <polyline points="14 2 14 8 20 8"></polyline>
                   <line x1="12" y1="18" x2="12" y2="12"></line>
                   <line x1="9" y1="15" x2="15" y2="15"></line>
                 </svg>
-                <p id="menuDropzoneText"><strong>Click or drag menu here</strong><br><span>Supports PDF, PNG, JPG, WEBP</span></p>
+                <p id="menuDropzoneText"><strong>Click or drag menu here</strong><br><span>Supports PDF, PNG, JPG, JPEG, WEBP</span></p>
                 <input type="file" id="menuFileInput" accept=".pdf,image/*" onchange="handleMenuFileSelected(event)" style="display:none;">
               </div>
               <button id="extractBtn" class="btn btn-primary w-100" onclick="startExtraction()" disabled>
@@ -123,51 +88,90 @@
               </button>
             </div>
           </div>
-        </div>
 
-        <!-- Batch Parameters Configuration Toolbar -->
-        <div class="batch-config-bar">
-          <div class="batch-config-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Batch Store Settings
+          <!-- Right Column: Batch Store Settings -->
+          <div class="card glass batch-settings-card">
+            <div class="card-header">
+              <span class="step-num" style="background: var(--company-wash); color: var(--company-forest); border-color: var(--company-light);">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </span>
+              <div>
+                <h3>Batch Store Settings</h3>
+                <p>Default store parameters & operating hours applied across all exported dishes</p>
+              </div>
+            </div>
+            <div class="card-body">
+              <div class="batch-settings-grid">
+                <div class="batch-field">
+                  <label>Store ID</label>
+                  <input type="number" id="batchStoreId" value="95" title="Store ID">
+                </div>
+                <div class="batch-field">
+                  <label>Module ID</label>
+                  <input type="number" id="batchModuleId" value="3" title="Module ID">
+                </div>
+                <div class="batch-field">
+                  <label>Discount</label>
+                  <input type="number" id="batchDiscount" value="0" step="1" title="Discount value">
+                </div>
+                <div class="batch-field">
+                  <label>Discount Type</label>
+                  <select id="batchDiscountType">
+                    <option value="percent">Percent (%)</option>
+                    <option value="amount">Amount (₹)</option>
+                  </select>
+                </div>
+
+                <!-- High-Visibility Store Operating Hours Panel -->
+                <div class="batch-timing-panel span-2">
+                  <div class="timing-panel-header">
+                    <div class="timing-header-title">
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                      <span>Store Operating Hours</span>
+                    </div>
+                    <div class="timing-preset-wrapper">
+                      <label for="batchTimePreset">Preset:</label>
+                      <select id="batchTimePreset" onchange="applyTimingPreset(this.value)">
+                        <option value="">Custom Time</option>
+                        <option value="08:00:00_23:55:00" selected>All Day (08:00 - 23:55)</option>
+                        <option value="10:00:00_23:00:00">Standard (10:00 - 23:00)</option>
+                        <option value="11:00:00_23:30:00">Lunch-Dinner (11:00 - 23:30)</option>
+                        <option value="12:00:00_00:00:00">Noon-Midnight (12:00 - 00:00)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div class="timing-inputs-row">
+                    <div class="timing-box">
+                      <span class="timing-tag">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 14 14"/></svg>
+                        Available Starts
+                      </span>
+                      <div class="time-input-container">
+                        <input type="time" step="1" id="batchTimeStarts" value="08:00:00" title="Available Starts (HH:MM:SS)" onchange="document.getElementById('batchTimePreset').value=''; syncStoreTimingToItems();">
+                      </div>
+                    </div>
+
+                    <div class="timing-arrow" title="operating interval">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                    </div>
+
+                    <div class="timing-box">
+                      <span class="timing-tag">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                        Available Ends
+                      </span>
+                      <div class="time-input-container">
+                        <input type="time" step="1" id="batchTimeEnds" value="23:55:00" title="Available Ends (HH:MM:SS)" onchange="document.getElementById('batchTimePreset').value=''; syncStoreTimingToItems();">
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
           </div>
-          <div class="batch-field">
-            <label>Store ID</label>
-            <input type="number" id="batchStoreId" value="95" title="Store ID">
-          </div>
-          <div class="batch-field">
-            <label>Module ID</label>
-            <input type="number" id="batchModuleId" value="3" title="Module ID">
-          </div>
-          <div class="batch-field">
-            <label>Discount</label>
-            <input type="number" id="batchDiscount" value="0" step="1" title="Discount value">
-          </div>
-          <div class="batch-field">
-            <label>Discount Type</label>
-            <select id="batchDiscountType">
-              <option value="percent">Percent (%)</option>
-              <option value="amount">Amount (₹)</option>
-            </select>
-          </div>
-          <div class="batch-field">
-            <label>Timing Preset</label>
-            <select id="batchTimePreset" onchange="applyTimingPreset(this.value)">
-              <option value="">Custom Time</option>
-              <option value="08:00:00_23:55:00" selected>All Day (08:00 - 23:55)</option>
-              <option value="10:00:00_23:00:00">Standard (10:00 - 23:00)</option>
-              <option value="11:00:00_23:30:00">Lunch-Dinner (11:00 - 23:30)</option>
-              <option value="12:00:00_00:00:00">Noon-Midnight (12:00 - 00:00)</option>
-            </select>
-          </div>
-          <div class="batch-field">
-            <label>Available Starts</label>
-            <input type="time" step="1" id="batchTimeStarts" value="08:00:00" title="Format: HH:MM:SS" onchange="document.getElementById('batchTimePreset').value=''">
-          </div>
-          <div class="batch-field">
-            <label>Available Ends</label>
-            <input type="time" step="1" id="batchTimeEnds" value="23:55:00" title="Format: HH:MM:SS" onchange="document.getElementById('batchTimePreset').value=''">
-          </div>
+
         </div>
 
         <!-- Extraction Progress Indicator -->
@@ -209,6 +213,9 @@
                 <p class="text-muted"><span id="itemsCountBadge">0</span> items mapped with Category IDs. Edit or adjust before generating.</p>
               </div>
               <div class="table-actions">
+                <button id="generateDescBtn" class="btn btn-sm btn-secondary" onclick="generateAIDescriptions()" title="Generate appetizing 10-15 word culinary descriptions using Gemini AI for items without descriptions">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> ✨ Generate AI Descriptions
+                </button>
                 <button class="btn btn-sm btn-secondary" onclick="addNewRow()">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> Add Row
                 </button>
@@ -223,21 +230,86 @@
               <table id="menuItemsTable">
                 <thead>
                   <tr>
-                    <th style="width: 250px; min-width: 250px;">Category & Turtu ID</th>
-                    <th style="width: 230px; min-width: 230px;">Item Name</th>
-                    <th style="width: 110px; min-width: 110px;">Price (₹)</th>
-                    <th style="width: 125px; min-width: 125px;">Dietary</th>
-                    <th style="width: 290px; min-width: 290px;">Variations / Sizes</th>
-                    <th style="width: 230px; min-width: 230px;">Description</th>
+                    <th style="width: 240px; min-width: 240px;">Category & Turtu ID</th>
+                    <th style="width: 220px; min-width: 220px;">Item Name</th>
+                    <th style="width: 100px; min-width: 100px;">Price (₹)</th>
+                    <th style="width: 120px; min-width: 120px;">Dietary</th>
+                    <th style="width: 260px; min-width: 260px;">Variations / Sizes</th>
+                    <th style="width: 285px; min-width: 260px;">Description</th>
+                    <th style="width: 235px; min-width: 235px;">Available Timing</th>
                     <th style="width: 45px; min-width: 45px; text-align: center;"></th>
                   </tr>
                 </thead>
                 <tbody id="menuItemsBody">
                   <tr class="empty-row">
-                    <td colspan="7" class="text-center text-muted">Upload a menu document and click "Extract Menu with Gemini AI" to populate the sheet.</td>
+                    <td colspan="8" class="text-center text-muted">Upload a menu document and click "Extract Menu with Gemini AI" to populate the sheet.</td>
                   </tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: CATEGORIES & TAXONOMY REGISTRY -->
+      <section id="panelCategories" class="tab-panel" style="display: none;">
+        <div class="categories-panel-container">
+          <!-- Header Card -->
+          <div class="card glass">
+            <div class="card-header" style="justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+              <div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <span class="icon-circle teal">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  </span>
+                  <div>
+                    <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--company-dark);">Category Taxonomy Registry</h2>
+                    <p style="font-size: 0.825rem; color: var(--text-secondary);">Portal category dictionary & IDs used by Gemini AI to classify food items accurately.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="category-header-actions" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <label class="btn btn-primary btn-file" style="cursor: pointer;">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  Upload Categories (.csv, .xlsx)
+                  <input type="file" id="categoryUploadInput" accept=".csv,.xlsx,.xls" onchange="uploadCategoryFile(event)" style="display:none;">
+                </label>
+                <button type="button" class="btn btn-secondary" onclick="exportCategoriesCsv()" title="Download current categories as CSV">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  Export CSV
+                </button>
+              </div>
+            </div>
+
+            <!-- Search & Filter Bar -->
+            <div class="card-body" style="padding-top: 10px;">
+              <div class="category-filter-bar">
+                <div class="search-input-wrapper" style="flex: 1; position: relative;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-muted);"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input type="text" id="categorySearchInput" class="form-control" placeholder="Search categories by name or numeric ID (e.g. 76, Biryani, Shawarma)..." oninput="filterCategoriesTable(this.value)" style="padding-left: 40px; border-radius: var(--radius-pill);">
+                </div>
+                <div class="filter-count-badge" id="categoryFilterCountBadge">
+                  {{ category_count }} categories active
+                </div>
+              </div>
+
+              <!-- Categories Table Container -->
+              <div class="table-container categories-table-wrapper" style="margin-top: 16px; max-height: 540px; overflow-y: auto;">
+                <table class="categories-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 70px; text-align: center;">#</th>
+                      <th style="width: 140px;">Category ID</th>
+                      <th style="min-width: 250px;">Category Name</th>
+                      <th style="width: 200px;">Taxonomy Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="categoriesTableBody">
+                    <!-- Populated dynamically by JS -->
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>

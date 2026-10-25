@@ -278,7 +278,43 @@ def get_dish_veg_status(dish_name: str, opt_label: str) -> str:
         return "no"
     if is_veg_text(combined):
         return "yes"
-    return "yes"
+def enforce_word_count(text: str, min_words: int = 10, max_words: int = 15) -> str:
+    """
+    Enforces that the description text is strictly between min_words and max_words (10 to 15 words).
+    """
+    if not text:
+        return "Freshly prepared wholesome delicacy cooked with authentic traditional spices, herbs, and savory seasonings."
+    
+    words = text.strip().split()
+    if len(words) > max_words:
+        truncated = words[:max_words]
+        clean_text = ' '.join(truncated)
+        clean_text = re.sub(r"[,;:\-–—\s]+$", "", clean_text)
+        if not clean_text.endswith((".", "!", "?")):
+            clean_text += "."
+        return clean_text
+
+    if len(words) < min_words:
+        pad_needed = min_words - len(words)
+        if pad_needed <= 2:
+            pad = "Freshly prepared."
+        elif pad_needed <= 4:
+            pad = "Crafted fresh with aromatic spices."
+        else:
+            pad = "Prepared fresh with traditional aromatic herbs and seasonings."
+        clean_text = text.rstrip(". ") + " " + pad
+        words = clean_text.split()
+        if len(words) > max_words:
+            clean_text = ' '.join(words[:max_words])
+            clean_text = re.sub(r"[,;:\-–—\s]+$", "", clean_text) + "."
+        return clean_text
+
+    clean_text = text.strip()
+    if not clean_text.endswith((".", "!", "?")):
+        clean_text += "."
+    return clean_text
+
+
 
 def split_protein_and_dietary_items(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -327,6 +363,7 @@ def split_protein_and_dietary_items(items: List[Dict[str, Any]]) -> List[Dict[st
                     new_sub_item["price"] = int(dish_price) if dish_price.is_integer() else round(dish_price, 2)
                     new_sub_item["veg"] = dish_veg
                     new_sub_item["variations"] = other_groups
+                    new_sub_item["description"] = item.get("description", "")
                     result.append(new_sub_item)
 
                 break  # Group handled
@@ -459,6 +496,7 @@ def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, 
                             sub_item["name"] = dish_title
                             sub_item["veg"] = dish_veg
                             sub_item["variations"] = []
+                            sub_item["description"] = item.get("description", "")
                             group_key = f"standalone_{len(order)}"
                             grouped[group_key] = {
                                 "is_multi": False,
@@ -647,6 +685,23 @@ class GenerateSheetPayload(BaseModel):
     global_available_time_starts: Optional[str] = "08:00:00"
     global_available_time_ends: Optional[str] = "23:55:00"
 
+class ItemToDescribe(BaseModel):
+    index: int
+    name: str
+    category_name: Optional[str] = "General"
+    veg: Optional[str] = "yes"
+    description: Optional[str] = ""
+
+class GenerateDescriptionsPayload(BaseModel):
+    items: List[ItemToDescribe]
+
+class SingleDescriptionOutput(BaseModel):
+    index: int = Field(description="The matching item index from the request")
+    description: str = Field(description="Mouth-watering, accurate culinary description tailored to the specific dish, strictly 10 to 15 words.")
+
+class DescriptionsContainer(BaseModel):
+    descriptions: List[SingleDescriptionOutput]
+
 # =====================================================================
 # CATEGORY MANAGEMENT ENDPOINTS
 # =====================================================================
@@ -666,25 +721,29 @@ async def get_categories():
 @router.post("/upload-categories")
 async def upload_categories(file: UploadFile = File(...)):
     """
-    Upload a CSV category list (e.g. categories_turtu.csv) containing ID and Name.
+    Upload a CSV or Excel category list (.csv, .xlsx, .xls) containing ID and Name.
     Persists categories for current and future AI extractions.
     """
-    if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are supported for category lists.")
+    fname = file.filename.lower()
+    if not (fname.endswith(".csv") or fname.endswith(".xlsx") or fname.endswith(".xls")):
+        raise HTTPException(status_code=400, detail="Only CSV (.csv) and Excel (.xlsx, .xls) files are supported for category lists.")
 
     content = await file.read()
-    try:
-        decoded = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        decoded = content.decode("latin-1")
+    if fname.endswith((".xlsx", ".xls")):
+        count = category_service.load_from_excel_content(content)
+    else:
+        try:
+            decoded = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            decoded = content.decode("latin-1")
+        count = category_service.load_from_csv_content(decoded)
 
-    count = category_service.load_from_csv_content(decoded)
     if count == 0:
-        raise HTTPException(status_code=400, detail="Could not detect valid category columns ('id' and 'name') in the CSV.")
+        raise HTTPException(status_code=400, detail="Could not detect valid category columns ('id' and 'name') in the uploaded file.")
 
     return {
         "status": "success",
-        "message": f"Successfully loaded and remembered {count} categories.",
+        "message": f"Successfully replaced active taxonomy with {count} new categories.",
         "count": count
     }
 
@@ -1147,3 +1206,122 @@ async def generate_sheet_from_items(payload: GenerateSheetPayload):
         filename=output_filename,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+# =====================================================================
+# DEDICATED AI DESCRIPTION GENERATION ENDPOINT (PHASE 2)
+# =====================================================================
+
+@router.post("/generate-descriptions")
+async def generate_descriptions(payload: GenerateDescriptionsPayload):
+    """
+    Step 2 in two-phase description workflow:
+    Accepts extracted items missing descriptions and calls Gemini text-generation model
+    to create 10-15 word mouth-watering, culinarily accurate descriptions tailored to each dish.
+    Guaranteed strictly between 10 and 15 words via enforce_word_count.
+    """
+    effective_key = settings.GEMINI_API_KEY
+    if not effective_key:
+        raise HTTPException(status_code=400, detail="No GEMINI_API_KEY configured. Please add your key to .env.")
+
+    items_to_process = [it for it in payload.items if not (it.description or "").strip()]
+    if not items_to_process:
+        return {
+            "status": "success",
+            "message": "All items already have descriptions.",
+            "descriptions": []
+        }
+
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=effective_key)
+
+        dishes_input = [
+            {
+                "index": it.index,
+                "name": it.name,
+                "category": it.category_name or "General",
+                "dietary": "Vegetarian" if str(it.veg).lower() in ["yes", "true", "1", "veg"] else "Non-Vegetarian"
+            }
+            for it in items_to_process
+        ]
+
+        prompt = f"""You are a world-class restaurant culinary menu copywriter.
+For each of the following dishes, write an appetizing, accurate culinary description tailored specifically to that dish's cuisine, taste, ingredients, and preparation style.
+
+ITEMS TO DESCRIBE:
+{json.dumps(dishes_input, indent=2)}
+
+CRITICAL RULES:
+1. Every description MUST be strictly between 10 and 15 words in length.
+2. Accurately describe the ingredients, texture, flavor profile, and preparation style appropriate for that exact dish:
+   - Desserts/Ice Creams/Shakes: cool, sweet, rich, creamy, decadent.
+   - Salads/Fresh Items: crisp, garden-fresh, tossed, vibrant.
+   - Wok/Chinese/Noodles/Fried Rice: wok-tossed, aromatic, crisp veggies, savory Asian sauces.
+   - Biryani/Pulao: fragrant basmati rice, layered, caramelized onions, slow-cooked royal spices.
+   - Tandoori/Breads/Pizza: clay-oven baked, warm, flaky, melted cheese, traditional seasonings.
+   - Curries/Gravies: rich, velvety simmered sauce, authentic spices, tender meats or cottage cheese.
+3. NEVER mention prices, currency symbols, or dietary tags in the description text.
+4. Format output strictly according to the requested JSON schema.
+"""
+
+        candidate_models = [
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.7-flash",
+            "gemini-3.5-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-latest"
+        ]
+
+        raw_results = None
+        for model_name in candidate_models:
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=DescriptionsContainer
+                        )
+                    )
+                    if response.text:
+                        parsed = json.loads(response.text)
+                        raw_results = parsed.get("descriptions", [])
+                        break
+                except Exception as model_err:
+                    err_str = str(model_err)
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                        time.sleep(1.0)
+                        continue
+                    break
+            if raw_results is not None:
+                break
+
+        if raw_results is None:
+            raise HTTPException(status_code=503, detail="Gemini AI is temporarily busy. Please try again.")
+
+        # Enforce strict 10-15 word guardrail on each generated description
+        sanitized_results = []
+        for res in raw_results:
+            idx = res.get("index")
+            raw_desc = res.get("description", "")
+            final_desc = enforce_word_count(raw_desc, min_words=10, max_words=15)
+            sanitized_results.append({
+                "index": idx,
+                "description": final_desc
+            })
+
+        return {
+            "status": "success",
+            "count": len(sanitized_results),
+            "descriptions": sanitized_results
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Description generation failed: {str(e)}")

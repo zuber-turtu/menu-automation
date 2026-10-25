@@ -46,7 +46,7 @@ class CategoryService:
             print(f"Failed to save categories: {e}")
 
     def load_from_csv_content(self, content_str: str) -> int:
-        """Parses CSV string content and updates category store."""
+        """Parses CSV string content and replaces the active category store completely."""
         lines = content_str.splitlines()
         reader = csv.reader(lines)
         rows = list(reader)
@@ -63,28 +63,107 @@ class CategoryService:
             elif col in ["name", "category_name", "categoryname", "title"]:
                 name_idx = idx
 
+        has_header = True
         if id_idx == -1 or name_idx == -1:
-            # Fallback by column position: Turtu CSV usually has sl, id, name
             if len(rows[0]) >= 3:
                 id_idx = 1
                 name_idx = 2
+            elif len(rows[0]) >= 2:
+                id_idx = 0
+                name_idx = 1
             else:
                 return 0
+            # If row 0 column is numeric, there is no header row
+            if rows[0][id_idx].strip().isdigit():
+                has_header = False
 
+        start_row = 1 if has_header else 0
         new_categories = []
-        for row in rows[1:]:
+        seen_ids = set()
+
+        for row in rows[start_row:]:
             if len(row) > max(id_idx, name_idx):
                 cid = str(row[id_idx]).strip()
                 name = str(row[name_idx]).strip()
-                if cid and name:
-                    new_categories.append({"id": cid, "name": name})
+                if cid and name and cid.lower() not in ["id", "category_id", "categoryid"]:
+                    if cid.endswith(".0"):
+                        cid = cid[:-2]
+                    if cid not in seen_ids:
+                        seen_ids.add(cid)
+                        new_categories.append({"id": cid, "name": name})
 
+        # Overwrite category store completely with newly uploaded categories (no old categories retained)
         if new_categories:
             self.category_list = new_categories
             self._rebuild_lookup()
             self.save_to_storage()
             return len(self.category_list)
         return 0
+
+    def load_from_excel_content(self, content_bytes: bytes) -> int:
+        """Parses Excel (.xlsx/.xls) binary content and replaces active category store completely."""
+        import io
+        import openpyxl
+
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(content_bytes), data_only=True)
+            ws = wb.active
+            rows = list(ws.iter_rows(values_only=True))
+            if not rows:
+                return 0
+
+            header = [str(h or "").strip().lower() for h in rows[0]]
+            id_idx = -1
+            name_idx = -1
+
+            for idx, col in enumerate(header):
+                if col in ["id", "category_id", "categoryid"]:
+                    id_idx = idx
+                elif col in ["name", "category_name", "categoryname", "title"]:
+                    name_idx = idx
+
+            has_header = True
+            if id_idx == -1 or name_idx == -1:
+                if len(rows[0]) >= 3:
+                    id_idx = 1
+                    name_idx = 2
+                elif len(rows[0]) >= 2:
+                    id_idx = 0
+                    name_idx = 1
+                else:
+                    return 0
+                val_str = str(rows[0][id_idx] or "").strip()
+                if val_str.isdigit() or val_str.replace(".0", "").isdigit():
+                    has_header = False
+
+            start_row = 1 if has_header else 0
+            new_categories = []
+            seen_ids = set()
+
+            for row in rows[start_row:]:
+                if len(row) > max(id_idx, name_idx):
+                    raw_id = row[id_idx]
+                    raw_name = row[name_idx]
+                    if raw_id is not None and raw_name is not None:
+                        cid = str(raw_id).strip()
+                        name = str(raw_name).strip()
+                        if cid and name and cid.lower() not in ["none", "id", "category_id", "categoryid"]:
+                            if cid.endswith(".0"):
+                                cid = cid[:-2]
+                            if cid not in seen_ids:
+                                seen_ids.add(cid)
+                                new_categories.append({"id": cid, "name": name})
+
+            # Overwrite category store completely with newly uploaded categories (no old categories retained)
+            if new_categories:
+                self.category_list = new_categories
+                self._rebuild_lookup()
+                self.save_to_storage()
+                return len(self.category_list)
+            return 0
+        except Exception as e:
+            print(f"Error loading Excel categories: {e}")
+            return 0
 
     def load_from_csv_file(self, filepath: Path) -> int:
         """Loads categories directly from a CSV file path."""
