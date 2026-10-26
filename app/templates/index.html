@@ -68,7 +68,7 @@
               <span class="step-num">1</span>
               <div>
                 <h3>Upload Menu Document</h3>
-                <p>Upload PDF or image (PNG, JPG, WEBP). Gemini will parse dishes & prices.</p>
+                <p>Upload PDF, image, or Excel / CSV spreadsheet. Gemini AI will parse dishes & prices.</p>
               </div>
             </div>
             <div class="card-body">
@@ -79,8 +79,8 @@
                   <line x1="12" y1="18" x2="12" y2="12"></line>
                   <line x1="9" y1="15" x2="15" y2="15"></line>
                 </svg>
-                <p id="menuDropzoneText"><strong>Click or drag menu here</strong><br><span>Supports PDF, PNG, JPG, JPEG, WEBP</span></p>
-                <input type="file" id="menuFileInput" accept=".pdf,image/*" onchange="handleMenuFileSelected(event)" style="display:none;">
+                <p id="menuDropzoneText"><strong>Click or drag menu here</strong><br><span>Supports PDF, Images, Excel (.xlsx, .xls), or CSV</span></p>
+                <input type="file" id="menuFileInput" accept=".pdf,image/*,.xlsx,.xls,.csv" onchange="handleMenuFileSelected(event)" style="display:none;">
               </div>
               <button id="extractBtn" class="btn btn-primary w-100" onclick="startExtraction()" disabled>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>

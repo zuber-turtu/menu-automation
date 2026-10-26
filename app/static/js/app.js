@@ -343,19 +343,34 @@ function processMenuFile(file) {
       preview.innerHTML = `<img src="${e.target.result}" alt="Menu Preview">`;
     };
     reader.readAsDataURL(file);
-  } else if (file.type === 'application/pdf') {
+  } else if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
     const fileUrl = URL.createObjectURL(file);
     preview.innerHTML = `<iframe src="${fileUrl}" width="100%" height="480px"></iframe>`;
+  } else {
+    const ext = file.name.split('.').pop().toUpperCase();
+    preview.innerHTML = `
+      <div class="excel-preview-card" style="padding: 28px 20px; text-align: center; background: var(--company-wash); border: 1.5px dashed var(--company-light); border-radius: var(--radius-md); margin-top: 15px;">
+        <div style="width: 58px; height: 58px; margin: 0 auto 14px; background: rgba(30, 126, 52, 0.12); color: #1e7e34; border-radius: 14px; display: flex; align-items: center; justify-content: center;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        </div>
+        <h4 style="color: var(--company-dark); margin-bottom: 6px; font-size: 1.05rem; word-break: break-all;">${escapeHtml(file.name)}</h4>
+        <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 14px;">Spreadsheet Document (${ext} • ${(file.size / (1024 * 1024)).toFixed(2)} MB)</p>
+        <span class="badge" style="background: var(--company-mist); color: var(--company-forest); padding: 6px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Ready for 100% Gemini AI Sheet Extraction
+        </span>
+      </div>
+    `;
   }
 }
 
 // =====================================================================
-// 3. AI Extraction with Gemini Vision
+// 3. AI Extraction with Gemini
 // =====================================================================
 
 async function startExtraction() {
   if (!state.menuFile) {
-    showToast("Please choose or drag a menu PDF or image first.", "warning");
+    showToast("Please choose or drag a menu PDF, image, or spreadsheet first.", "warning");
     return;
   }
 
@@ -369,7 +384,7 @@ async function startExtraction() {
   progContainer.style.display = 'block';
   progFill.style.width = '30%';
   progPercent.innerText = '30%';
-  progText.innerText = 'Uploading document to Gemini Vision...';
+  progText.innerText = 'Uploading document to Gemini AI...';
 
   const formData = new FormData();
   formData.append('menu_file', state.menuFile);

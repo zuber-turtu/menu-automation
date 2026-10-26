@@ -783,8 +783,128 @@ async def upload_reference_sheet(file: UploadFile = File(...)):
     }
 
 # =====================================================================
-# GEMINI MULTIMODAL MENU EXTRACTION
+# GEMINI MULTIMODAL MENU EXTRACTION (PDF, IMAGES & SPREADSHEETS)
 # =====================================================================
+
+def extract_spreadsheet_chunks(file_path: Path, max_rows_per_chunk: int = 70) -> List[tuple[str, str]]:
+    """
+    Reads an Excel (.xlsx, .xls) or CSV file, detects headers, groups consecutive
+    rows of the same dish together, and creates clean tabular text chunks for Gemini AI.
+    Returns: List of (sheet_name, chunk_text)
+    """
+    file_path = Path(file_path)
+    ext = file_path.suffix.lower()
+    chunks = []
+
+    if ext == ".csv":
+        import csv
+        with open(file_path, "r", encoding="utf-8-sig", errors="replace") as f:
+            reader = csv.reader(f)
+            raw_rows = [r for r in reader if any(c.strip() for c in r)]
+            if raw_rows:
+                header = [c.strip() for c in raw_rows[0]]
+                header_str = " | ".join(header)
+                data_rows = raw_rows[1:]
+                for i in range(0, len(data_rows), max_rows_per_chunk):
+                    sub = data_rows[i:i + max_rows_per_chunk]
+                    chunk_text = f"### SPREADSHEET (Rows {i+1} to {i+len(sub)}):\n" + header_str + "\n"
+                    chunk_text += "\n".join(" | ".join(c.strip() for c in r) for r in sub)
+                    chunks.append(("Sheet1", chunk_text))
+        return chunks
+
+    elif ext in [".xlsx", ".xls"]:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, data_only=True)
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            raw_rows = list(ws.iter_rows(values_only=True))
+            if not raw_rows:
+                continue
+
+            header = None
+            data_rows = []
+            for r in raw_rows:
+                cleaned = [str(c).strip() if c is not None else "" for c in r]
+                while cleaned and cleaned[-1] == "":
+                    cleaned.pop()
+                if not cleaned:
+                    continue
+                if header is None:
+                    header = cleaned
+                else:
+                    data_rows.append(cleaned)
+
+            if not header or not data_rows:
+                continue
+
+            header_str = " | ".join(header)
+
+            # Find name column index if possible to prevent splitting multi-row variants
+            name_col_idx = None
+            for idx, col in enumerate(header):
+                col_lower = col.lower()
+                if any(k in col_lower for k in ["name", "item", "dish", "catalogue"]):
+                    name_col_idx = idx
+                    break
+
+            # Smart chunking: don't break consecutive rows with identical dish name
+            current_chunk = []
+            last_dish_name = None
+
+            for row in data_rows:
+                dish_name = row[name_col_idx] if (name_col_idx is not None and name_col_idx < len(row)) else None
+
+                # If chunk is full AND dish_name is not continuing the last dish
+                if len(current_chunk) >= max_rows_per_chunk and (dish_name != last_dish_name or not dish_name):
+                    chunk_text = f"### SPREADSHEET SHEET: {sheet_name}\n" + header_str + "\n"
+                    chunk_text += "\n".join(" | ".join(r) for r in current_chunk)
+                    chunks.append((sheet_name, chunk_text))
+                    current_chunk = []
+
+                current_chunk.append(row)
+                last_dish_name = dish_name
+
+            if current_chunk:
+                chunk_text = f"### SPREADSHEET SHEET: {sheet_name}\n" + header_str + "\n"
+                chunk_text += "\n".join(" | ".join(r) for r in current_chunk)
+                chunks.append((sheet_name, chunk_text))
+
+        return chunks
+
+    return []
+
+def call_gemini_extraction(client, contents: list, candidate_models: list) -> Optional[list]:
+    """
+    Executes Gemini extraction using resilient candidate model cascade with backoff.
+    """
+    from google.genai import types
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=MenuExtractionContainer
+                    )
+                )
+                if response and response.text:
+                    parsed_json = json.loads(response.text)
+                    items = parsed_json.get("items", [])
+                    print(f"Extraction successful with model: {model_name} ({len(items)} items)")
+                    return items
+            except Exception as model_err:
+                err_str = str(model_err)
+                print(f"Model {model_name} attempt {attempt + 1}: {err_str[:90]}")
+                if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                    if attempt == 0:
+                        time.sleep(1.5)
+                        continue
+                    else:
+                        time.sleep(1.0)
+                break
+    return None
 
 @router.post("/extract-preview")
 async def extract_menu_items(
@@ -802,8 +922,11 @@ async def extract_menu_items(
     filename = menu_file.filename
     ext = Path(filename).suffix.lower()
 
-    if ext not in [".pdf", ".png", ".jpg", ".jpeg", ".webp"]:
-        raise HTTPException(status_code=400, detail="Unsupported format. Please upload PDF, PNG, JPG, or WEBP.")
+    if ext not in [".pdf", ".png", ".jpg", ".jpeg", ".webp", ".xlsx", ".xls", ".csv"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported format. Please upload PDF, PNG, JPG, WEBP, Excel (.xlsx, .xls), or CSV."
+        )
 
     saved_path = settings.UPLOAD_DIR / filename
     with open(saved_path, "wb") as buffer:
@@ -821,17 +944,84 @@ async def extract_menu_items(
         from google.genai import types
 
         client = genai.Client(api_key=effective_key)
-
-        with open(saved_path, "rb") as f:
-            file_bytes = f.read()
-
-        mime_type = "application/pdf" if ext == ".pdf" else f"image/{ext.replace('.', '')}"
-        if mime_type == "image/jpg":
-            mime_type = "image/jpeg"
-
         taxonomy_prompt = category_service.get_taxonomy_prompt(max_items=120)
 
-        prompt = f"""You are a world-class restaurant menu digitization expert.
+        # Resilient multi-tier candidate cascade with exponential backoff for transient 503 spikes
+        candidate_models = [
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.5-flash",
+            "gemini-3.8-flash",
+            "gemini-3.1-flash-lite",
+            "gemini-flash-latest"
+        ]
+
+        extracted_data = []
+        is_spreadsheet = ext in [".xlsx", ".xls", ".csv"]
+
+        if is_spreadsheet:
+            spreadsheet_chunks = extract_spreadsheet_chunks(saved_path, max_rows_per_chunk=70)
+            if not spreadsheet_chunks:
+                return {
+                    "status": "warning",
+                    "message": "Uploaded spreadsheet was empty or contained no readable rows.",
+                    "items": []
+                }
+
+            print(f"Processing spreadsheet '{filename}' with {len(spreadsheet_chunks)} chunk(s) via Gemini AI...")
+            for idx, (s_name, chunk_text) in enumerate(spreadsheet_chunks):
+                sheet_prompt = f"""You are a world-class restaurant menu digitization expert.
+Examine this restaurant menu spreadsheet text carefully and extract EVERY dish, drink, beverage, or food item into structured data.
+
+### TARGET CATEGORY TAXONOMY:
+{taxonomy_prompt}
+
+### CRITICAL RULES FOR SPREADSHEET EXTRACTION (APPLIES TO ALL SPREADSHEETS):
+1. MULTI-ROW VARIANT CONSOLIDATION:
+   - In menu spreadsheets, the same dish often appears on multiple consecutive rows with different variant names (e.g. 'Chicken Dum Biryani' listed on one row as 'Quarter' for 209, and on the next row as 'Half' for 249).
+   - You MUST consolidate rows sharing the same dish name into ONE single food item!
+   - Set the main item 'price' to the LOWEST price among all its variants (e.g. 209).
+   - In variations, set the lowest option delta to '0' (optionPrice: "0"), and all other options to the price difference (e.g. Half: 249 - 209 = optionPrice: "40").
+   - If variant_name is the same as the dish name (e.g. 'Veg Biryani' with variant 'Veg Biryani'), it has NO variations -> set variations to empty list [].
+
+2. DELTA PRICING RULE FOR ALL VARIATIONS (MANDATORY & UNIVERSAL):
+   - For ANY item with variations/sizes/flavors, set the main item 'price' to the LOWEST price among all its variations.
+   - Formula: optionPrice = (variation_actual_price - base_price).
+   - NEVER enter full price in variation options.
+
+3. DIETARY CLASSIFICATION:
+   - If the spreadsheet has a 'Dietary Type' or 'Type' column (e.g. 'Veg', 'Non-Veg'), use it directly!
+   - If the spreadsheet does NOT have a dietary column, classify based on ingredients:
+     * 'veg' to 'yes' if vegetarian (vegetables, paneer, mushroom, dal, rice, noodles, cheese, fruits).
+     * 'veg' to 'no' if it contains chicken, meat, mutton, egg, fish, prawns, or seafood.
+   - An item MUST NEVER mix Veg and Non-Veg variations. If a dish lists both, extract them as separate food items!
+
+4. CATEGORY MATCHING:
+   - Match each dish to the closest category from the TARGET CATEGORY TAXONOMY above.
+   - Return the exact matching 'category_id' (e.g. '76') and 'category_name'.
+
+5. DESCRIPTIONS:
+   - If the spreadsheet row contains a description, preserve it. If blank, set description to "".
+
+### SPREADSHEET CONTENT TO EXTRACT ({s_name} - Chunk {idx + 1}/{len(spreadsheet_chunks)}):
+{chunk_text}
+
+Format strictly according to the requested JSON schema.
+"""
+                chunk_items = call_gemini_extraction(client, [sheet_prompt], candidate_models)
+                if chunk_items:
+                    extracted_data.extend(chunk_items)
+
+        else:
+            with open(saved_path, "rb") as f:
+                file_bytes = f.read()
+
+            mime_type = "application/pdf" if ext == ".pdf" else f"image/{ext.replace('.', '')}"
+            if mime_type == "image/jpg":
+                mime_type = "image/jpeg"
+
+            prompt = f"""You are a world-class restaurant menu digitization expert.
 Examine this menu image/PDF carefully and extract EVERY dish, drink, or food item into structured data.
 
 ### TARGET CATEGORY TAXONOMY:
@@ -949,55 +1139,15 @@ These rules apply to EVERY dish category (Beverages, Breakfast, Fast Food, Chine
 Format strictly according to the requested JSON schema.
 """
 
-        # Resilient multi-tier candidate cascade with exponential backoff for transient 503 spikes
-        candidate_models = [
-            "gemini-3.8-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.7-flash",
-            "gemini-3.5-flash",
-            "gemini-3.1-flash-lite",
-            "gemini-flash-latest"
-        ]
+            vision_items = call_gemini_extraction(
+                client,
+                [types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
+                candidate_models
+            )
+            if vision_items:
+                extracted_data.extend(vision_items)
 
-        extracted_data = None
-        for model_name in candidate_models:
-            # Try up to 2 attempts per model with backoff if 503 high demand is encountered
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=[
-                            types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
-                            prompt
-                        ],
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=MenuExtractionContainer
-                        )
-                    )
-                    if response.text:
-                        parsed_json = json.loads(response.text)
-                        extracted_data = parsed_json.get("items", [])
-                        print(f"Extraction successful with model: {model_name} ({len(extracted_data)} items extracted)")
-                        break
-                except Exception as model_err:
-                    err_str = str(model_err)
-                    print(f"Model {model_name} attempt {attempt + 1}: {err_str}")
-                    # If high demand 503 spike, wait briefly before retrying or moving to next candidate
-                    if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
-                        if attempt == 0:
-                            time.sleep(1.5)
-                            continue
-                        else:
-                            time.sleep(1.0)
-                    # If model not found (404) or quota (429), break inner loop to try next model immediately
-                    break
-
-            if extracted_data is not None:
-                break
-
-        if extracted_data is None:
+        if not extracted_data:
             return {
                 "status": "warning",
                 "message": "AI extraction was temporarily unavailable due to high demand spikes (503 UNAVAILABLE). Please click 'Extract & Preview' again in a few moments.",
