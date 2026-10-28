@@ -1436,33 +1436,44 @@ function saveVariationModal() {
 }
 
 // =====================================================================
-// 6. Gemini API Key Configuration
+// 6. Gemini API Key Pool Manager (Round-Robin & Write-Only)
 // =====================================================================
 
-function initApiKeyStatus() {
-  const customKey = localStorage.getItem('menu_gemini_api_key');
+async function initApiKeyStatus() {
+  try {
+    const res = await fetch('/api/keys/summary');
+    if (!res.ok) return;
+    const data = await res.json();
+    const summary = data.summary || {};
+    updateHeaderKeyPill(summary);
+  } catch (e) {
+    console.warn("Could not fetch key pool summary:", e);
+  }
+}
+
+function updateHeaderKeyPill(summary) {
   const badge = document.getElementById('apiKeyStatusBadge');
-  if (customKey && customKey.trim().length > 5 && badge) {
-    badge.innerHTML = `<span class="status-indicator active"></span> Gemini Key Configured`;
+  if (!badge) return;
+  
+  if (summary.active_keys > 0) {
+    const plural = summary.active_keys > 1 ? 's' : '';
+    badge.innerHTML = `<span class="status-indicator active"></span> <span id="apiKeyPillText">${summary.active_keys} Key${plural} Active (Round-Robin)</span>`;
+  } else if (summary.has_env_fallback) {
+    badge.innerHTML = `<span class="status-indicator active"></span> <span id="apiKeyPillText">1 Key Active (.env)</span>`;
+  } else {
+    badge.innerHTML = `<span class="status-indicator idle"></span> <span id="apiKeyPillText">Add API Key</span>`;
   }
 }
 
 function openApiKeyModal() {
-  const customKey = localStorage.getItem('menu_gemini_api_key') || '';
-  const input = document.getElementById('geminiApiKeyInput');
-  input.value = customKey;
-
-  const clearBtn = document.getElementById('clearApiKeyBtn');
-  clearBtn.style.display = customKey ? 'block' : 'none';
-
-  const notice = document.getElementById('apiKeyNoticeBox');
-  if (customKey) {
-    notice.innerHTML = `<span style="color:var(--success);">✓ Active custom key loaded (${customKey.slice(0, 6)}...${customKey.slice(-4)})</span>`;
-  } else {
-    notice.innerHTML = `<span class="text-muted">No custom key stored. Using environment variable if present.</span>`;
-  }
-
-  document.getElementById('apiKeyModal').style.display = 'flex';
+  const modal = document.getElementById('apiKeyModal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+  const keyInput = document.getElementById('newApiKeyInput');
+  if (keyInput) keyInput.value = '';
+  const labelInput = document.getElementById('newApiKeyLabel');
+  if (labelInput) labelInput.value = '';
+  loadApiKeyPool();
 }
 
 function closeApiKeyModal() {
@@ -1470,34 +1481,162 @@ function closeApiKeyModal() {
   if (modal) modal.style.display = 'none';
 }
 
-function toggleApiKeyVisibility() {
-  const input = document.getElementById('geminiApiKeyInput');
+function toggleNewKeyVisibility() {
+  const input = document.getElementById('newApiKeyInput');
+  if (!input) return;
   input.type = input.type === 'password' ? 'text' : 'password';
 }
 
-function saveApiKey() {
-  const input = document.getElementById('geminiApiKeyInput');
-  const key = input.value.trim();
+async function loadApiKeyPool() {
+  const tbody = document.getElementById('keyPoolTableBody');
+  const countText = document.getElementById('keyPoolCountText');
+  if (!tbody) return;
 
-  if (key) {
-    localStorage.setItem('menu_gemini_api_key', key);
-    const badge = document.getElementById('apiKeyStatusBadge');
-    if (badge) {
-      badge.innerHTML = `<span class="status-indicator active"></span> Gemini Key Configured`;
+  try {
+    const res = await fetch('/api/keys');
+    const data = await res.json();
+    const keys = data.keys || [];
+    const summary = data.summary || {};
+
+    if (countText) countText.innerText = keys.length;
+    updateHeaderKeyPill(summary);
+
+    if (keys.length === 0) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" style="text-align: center; padding: 24px; color: var(--text-muted);">
+            No custom API keys in pool yet.<br>
+            <span style="font-size: 0.76rem;">${summary.has_env_fallback ? 'Currently using default fallback key from .env file.' : 'Please add at least 1 Gemini API key to start digitizing menus.'}</span>
+          </td>
+        </tr>
+      `;
+      return;
     }
-    showToast("Gemini API Key saved for this browser session!", "success");
+
+    tbody.innerHTML = keys.map((k, idx) => {
+      let statusBadge = '';
+      const statusLower = (k.status || '').toLowerCase();
+      if (statusLower.includes('active')) {
+        const latencyText = k.latency_ms ? ` (${k.latency_ms}ms)` : '';
+        statusBadge = `<span class="key-status-badge active">● Active${latencyText}</span>`;
+      } else if (statusLower.includes('rate_limited')) {
+        statusBadge = `<span class="key-status-badge rate-limited">● ${escapeHtml(k.status)}</span>`;
+      } else {
+        statusBadge = `<span class="key-status-badge invalid">● Invalid</span>`;
+      }
+
+      return `
+        <tr>
+          <td style="font-weight: 600; color: var(--text-primary);">${escapeHtml(k.label || `Key #${idx + 1}`)}</td>
+          <td><span class="masked-key-pill">${escapeHtml(k.masked_key)}</span></td>
+          <td>${statusBadge}</td>
+          <td style="color: var(--text-muted); font-size: 0.74rem;">${escapeHtml(k.created_at || 'Recently')}</td>
+          <td style="text-align: center;">
+            <button type="button" class="key-delete-btn" onclick="deleteApiKey('${k.id}', '${escapeHtml(k.label || 'API Key')}')" title="Delete Key from Pool">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+  } catch (err) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="5" style="text-align: center; padding: 20px; color: var(--danger);">
+          Failed to load API keys: ${escapeHtml(err.message)}
+        </td>
+      </tr>
+    `;
   }
-  closeApiKeyModal();
 }
 
-function clearApiKey() {
-  localStorage.removeItem('menu_gemini_api_key');
-  const badge = document.getElementById('apiKeyStatusBadge');
-  if (badge) {
-    badge.innerHTML = `<span class="status-indicator idle"></span> Key Needed`;
+async function submitNewApiKey() {
+  const keyInput = document.getElementById('newApiKeyInput');
+  const labelInput = document.getElementById('newApiKeyLabel');
+  const btn = document.getElementById('addKeyBtn');
+  const btnText = document.getElementById('addKeyBtnText');
+
+  const keyVal = (keyInput ? keyInput.value : '').trim();
+  const labelVal = (labelInput ? labelInput.value : '').trim();
+
+  if (!keyVal || keyVal.length < 15) {
+    showToast("Please enter a valid Gemini API Key (starts with AIzaSy...)", "warning");
+    return;
   }
-  showToast("Custom Gemini API key cleared.", "info");
-  closeApiKeyModal();
+
+  btn.disabled = true;
+  btnText.innerText = "Verifying...";
+
+  try {
+    const res = await fetch('/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: keyVal, label: labelVal })
+    });
+    const result = await res.json();
+
+    if (res.ok) {
+      showToast(result.message || "Key validated & added to pool!", "success");
+      if (keyInput) keyInput.value = '';
+      if (labelInput) labelInput.value = '';
+      await loadApiKeyPool();
+    } else {
+      showToast(result.detail || result.message || "Failed to add key.", "error");
+    }
+  } catch (err) {
+    showToast(`Verification error: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    btnText.innerText = "+ Add & Verify";
+  }
+}
+
+async function deleteApiKey(keyId, label) {
+  if (!confirm(`Are you sure you want to remove '${label}' from the active key pool?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/keys/${keyId}`, { method: 'DELETE' });
+    const result = await res.json();
+    if (res.ok) {
+      showToast(`Removed '${label}' from pool.`, "info");
+      await loadApiKeyPool();
+    } else {
+      showToast(result.detail || "Failed to delete key.", "error");
+    }
+  } catch (err) {
+    showToast(`Delete error: ${err.message}`, "error");
+  }
+}
+
+async function checkAllApiKeys() {
+  const btn = document.getElementById('checkAllKeysBtn');
+  const btnText = document.getElementById('checkAllKeysBtnText');
+  const icon = document.getElementById('checkAllKeysIcon');
+
+  btn.disabled = true;
+  btnText.innerText = "Pinging Keys...";
+  if (icon) icon.classList.add('spin-animation');
+
+  try {
+    const res = await fetch('/api/keys/test-all', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok) {
+      const activeCount = (data.results || []).filter(r => r.status === 'active').length;
+      showToast(`Health check complete! ${activeCount} of ${data.results.length} keys active.`, "success");
+      await loadApiKeyPool();
+    } else {
+      showToast(data.detail || "Health check failed.", "error");
+    }
+  } catch (err) {
+    showToast(`Ping error: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    btnText.innerText = "Check All API Status";
+    if (icon) icon.classList.remove('spin-animation');
+  }
 }
 
 // =====================================================================

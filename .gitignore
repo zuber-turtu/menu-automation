@@ -25,6 +25,10 @@ htmlcov/
 uploads/*
 !uploads/.gitkeep
 
+# Local data & API Key Pool secrets
+data/*
+!data/.gitkeep
+
 # IDE & Editor files
 .vscode/
 .idea/

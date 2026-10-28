@@ -12,6 +12,7 @@ import openpyxl
 
 from app.config import settings
 from app.services.category_service import category_service
+from app.services.key_manager import key_manager
 
 router = APIRouter(prefix="/api/menu", tags=["Menu Processing & Automation"])
 
@@ -873,37 +874,75 @@ def extract_spreadsheet_chunks(file_path: Path, max_rows_per_chunk: int = 70) ->
 
     return []
 
-def call_gemini_extraction(client, contents: list, candidate_models: list) -> Optional[list]:
+def call_gemini_extraction(contents: list, candidate_models: list, override_key: Optional[str] = None) -> Optional[list]:
     """
-    Executes Gemini extraction using resilient candidate model cascade with backoff.
+    Executes Gemini extraction using:
+    1. Sequential Round-Robin key selection from KeyManager (Key 1 -> Key 2 -> Key 3)
+    2. Automatic 429 rate-limit failover across keys in pool
+    3. Resilient candidate model cascade with exponential backoff for 503 spikes
     """
+    from google import genai
     from google.genai import types
-    for model_name in candidate_models:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=MenuExtractionContainer
+
+    max_key_attempts = 3
+    for _ in range(max_key_attempts):
+        if override_key and override_key.strip():
+            raw_key = override_key.strip()
+            key_id = "custom"
+            key_label = "Custom Request Key"
+        else:
+            raw_key, key_id, key_label = key_manager.get_next_key()
+
+        if not raw_key:
+            print("No Gemini API keys available in pool or .env")
+            return None
+
+        client = genai.Client(api_key=raw_key)
+        hit_429 = False
+
+        for model_name in candidate_models:
+            for attempt in range(2):
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=contents,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=MenuExtractionContainer
+                        )
                     )
-                )
-                if response and response.text:
-                    parsed_json = json.loads(response.text)
-                    items = parsed_json.get("items", [])
-                    print(f"Extraction successful with model: {model_name} ({len(items)} items)")
-                    return items
-            except Exception as model_err:
-                err_str = str(model_err)
-                print(f"Model {model_name} attempt {attempt + 1}: {err_str[:90]}")
-                if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
-                    if attempt == 0:
-                        time.sleep(1.5)
-                        continue
-                    else:
-                        time.sleep(1.0)
+                    if response and response.text:
+                        parsed_json = json.loads(response.text)
+                        items = parsed_json.get("items", [])
+                        masked = key_manager.mask_key(raw_key)
+                        print(f"Extraction successful: model={model_name}, key='{key_label}' ({masked}), items={len(items)}")
+                        return items
+                except Exception as model_err:
+                    err_str = str(model_err)
+                    print(f"Key '{key_label}' / Model {model_name} attempt {attempt + 1}: {err_str[:90]}")
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                        if key_id != "custom":
+                            key_manager.mark_rate_limited(key_id, cooldown_seconds=60)
+                        hit_429 = True
+                        break
+                    if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                        if attempt == 0:
+                            time.sleep(1.5)
+                            continue
+                        else:
+                            time.sleep(1.0)
+                    break
+            if hit_429:
                 break
+
+        if hit_429:
+            print(f"Key '{key_label}' rate-limited (429). Rotating to next available key in pool...")
+            if override_key:
+                break
+            continue
+        else:
+            break
+
     return None
 
 @router.post("/extract-preview")
@@ -912,13 +951,9 @@ async def extract_menu_items(
     api_key: Optional[str] = Form(None)
 ):
     """
-    Accepts a menu PDF or image file and extracts dishes, prices, veg/non-veg,
-    variations, and matches Category IDs using Google Gemini Vision.
+    Accepts a menu PDF, image, Excel or CSV file and extracts dishes, prices, veg/non-veg,
+    variations, and matches Category IDs using Google Gemini AI with Round-Robin key rotation.
     """
-    # Dynamic reload from .env in case user updated it while server is running
-    from dotenv import load_dotenv
-    load_dotenv(settings.BASE_DIR / ".env", override=True)
-    effective_key = (api_key or "").strip() or os.getenv("GEMINI_API_KEY", "").strip() or settings.GEMINI_API_KEY
     filename = menu_file.filename
     ext = Path(filename).suffix.lower()
 
@@ -932,10 +967,13 @@ async def extract_menu_items(
     with open(saved_path, "wb") as buffer:
         shutil.copyfileobj(menu_file.file, buffer)
 
-    if not effective_key:
+    pool_summary = key_manager.get_pool_summary()
+    has_valid_key = pool_summary.get("has_any_key") or (api_key and len(api_key.strip()) > 8)
+
+    if not has_valid_key:
         return {
             "status": "no_key",
-            "message": "No GEMINI_API_KEY detected. Please configure your key in .env or Settings.",
+            "message": "No active Gemini API Key detected. Please configure a key in the Key Pool Manager.",
             "items": []
         }
 
@@ -943,7 +981,6 @@ async def extract_menu_items(
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=effective_key)
         taxonomy_prompt = category_service.get_taxonomy_prompt(max_items=120)
 
         # Resilient multi-tier candidate cascade with exponential backoff for transient 503 spikes
@@ -1009,7 +1046,7 @@ Examine this restaurant menu spreadsheet text carefully and extract EVERY dish, 
 
 Format strictly according to the requested JSON schema.
 """
-                chunk_items = call_gemini_extraction(client, [sheet_prompt], candidate_models)
+                chunk_items = call_gemini_extraction([sheet_prompt], candidate_models, override_key=api_key)
                 if chunk_items:
                     extracted_data.extend(chunk_items)
 
@@ -1140,9 +1177,9 @@ Format strictly according to the requested JSON schema.
 """
 
             vision_items = call_gemini_extraction(
-                client,
                 [types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
-                candidate_models
+                candidate_models,
+                override_key=api_key
             )
             if vision_items:
                 extracted_data.extend(vision_items)
@@ -1369,9 +1406,12 @@ async def generate_descriptions(payload: GenerateDescriptionsPayload):
     to create 10-15 word mouth-watering, culinarily accurate descriptions tailored to each dish.
     Guaranteed strictly between 10 and 15 words via enforce_word_count.
     """
-    effective_key = settings.GEMINI_API_KEY
-    if not effective_key:
-        raise HTTPException(status_code=400, detail="No GEMINI_API_KEY configured. Please add your key to .env.")
+    raw_key, key_id, key_label = key_manager.get_next_key()
+    if not raw_key:
+        raise HTTPException(
+            status_code=400,
+            detail="No active Gemini API Key detected. Please configure a key in the Key Pool Manager."
+        )
 
     items_to_process = [it for it in payload.items if not (it.description or "").strip()]
     if not items_to_process:
@@ -1385,7 +1425,7 @@ async def generate_descriptions(payload: GenerateDescriptionsPayload):
         from google import genai
         from google.genai import types
 
-        client = genai.Client(api_key=effective_key)
+        client = genai.Client(api_key=raw_key)
 
         dishes_input = [
             {
@@ -1444,6 +1484,9 @@ CRITICAL RULES:
                         break
                 except Exception as model_err:
                     err_str = str(model_err)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                        key_manager.mark_rate_limited(key_id, cooldown_seconds=60)
+                        break
                     if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
                         time.sleep(1.0)
                         continue

@@ -1616,3 +1616,77 @@ tbody tr:hover {
 .categories-table tr:hover td {
   background: var(--company-mint);
 }
+
+/* =====================================================================
+   Key Pool Manager Modal & Table Styles
+   ===================================================================== */
+.key-pool-table tr:hover td {
+  background: rgba(46, 125, 50, 0.04);
+}
+
+.key-pool-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.masked-key-pill {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.5px;
+  background: var(--bg-tertiary);
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  display: inline-block;
+}
+
+.key-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 12px;
+}
+
+.key-status-badge.active {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.key-status-badge.rate-limited {
+  background: #fef7e0;
+  color: #b06000;
+}
+
+.key-status-badge.invalid {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+.key-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.key-delete-btn:hover {
+  background: #fce8e6;
+  color: #c5221f;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin-animation {
+  animation: spin 1s linear infinite;
+}

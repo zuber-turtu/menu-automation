@@ -44,11 +44,13 @@
 
       <div class="header-actions">
         <!-- API Key Status Pill -->
-        <div class="api-status-pill" id="apiKeyStatusBadge" onclick="openApiKeyModal()" title="Click to view or configure Gemini API Key">
-          {% if has_gemini_key %}
-            <span class="status-indicator active"></span> Gemini Vision Ready
+        <div class="api-status-pill" id="apiKeyStatusBadge" onclick="openApiKeyModal()" title="Click to manage Gemini API Key Pool (Round-Robin)">
+          {% if key_summary and key_summary.active_keys > 0 %}
+            <span class="status-indicator active"></span> <span id="apiKeyPillText">{{ key_summary.active_keys }} Key{% if key_summary.active_keys > 1 %}s{% endif %} Active (Round-Robin)</span>
+          {% elif has_gemini_key %}
+            <span class="status-indicator active"></span> <span id="apiKeyPillText">1 Key Active (.env)</span>
           {% else %}
-            <span class="status-indicator idle"></span> Key Needed
+            <span class="status-indicator idle"></span> <span id="apiKeyPillText">Add API Key</span>
           {% endif %}
         </div>
       </div>
@@ -407,50 +409,94 @@
         </div>
       </div>
 
-      <!-- API Key Configuration Modal -->
+      <!-- Gemini API Key Pool Manager Modal (Round-Robin & Write-Only) -->
       <div class="modal-overlay" id="apiKeyModal" style="display: none;" onclick="handleModalOverlayClick(event, 'apiKeyModal')">
-        <div class="modal-card" style="max-width: 480px;">
+        <div class="modal-card key-pool-modal" style="max-width: 680px; width: 92%;">
           <div class="modal-header">
             <div>
-              <h3>Gemini Vision API Key</h3>
-              <p class="text-muted" style="font-size: 0.78rem; margin-top: 2px;">Used for AI menu recognition & category mapping</p>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h3 style="margin: 0; font-size: 1.15rem; color: var(--company-dark);">Gemini API Key Pool Manager</h3>
+                <span class="badge" style="background: var(--company-mist); color: var(--company-forest); font-size: 0.72rem; padding: 3px 8px; border-radius: 12px; font-weight: 700;">Round-Robin</span>
+              </div>
+              <p class="text-muted" style="font-size: 0.78rem; margin-top: 4px;">
+                Sequentially load-balances extraction requests across active keys (Key 1 &rarr; Key 2 &rarr; Key 3) with automatic failover.
+              </p>
             </div>
             <button type="button" class="modal-close-btn" onclick="closeApiKeyModal()" title="Close">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
           </div>
           
-          <div class="modal-body">
-            <div style="margin-bottom: 14px;">
-              <label style="font-size: 0.825rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">API Key</label>
-              <div style="position: relative;">
-                <input type="password" id="geminiApiKeyInput" class="form-control" placeholder="AIzaSy..." style="padding-right: 40px; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem;">
-                <button type="button" onclick="toggleApiKeyVisibility()" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;">
-                  <svg id="eyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          <div class="modal-body" style="padding: 16px 20px;">
+            <!-- Add New Key Form -->
+            <div class="add-key-card" style="background: var(--company-wash); border: 1px solid var(--company-light); border-radius: var(--radius-md); padding: 14px 16px; margin-bottom: 16px;">
+              <h4 style="margin: 0 0 10px; font-size: 0.86rem; color: var(--company-dark); display: flex; align-items: center; gap: 6px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Add API Key to Pool
+              </h4>
+              <div style="display: grid; grid-template-columns: 1fr 140px auto; gap: 10px; align-items: start;">
+                <div style="position: relative;">
+                  <input type="password" id="newApiKeyInput" class="form-control" placeholder="Enter Gemini API Key (AIzaSy...)" style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; padding-right: 36px;">
+                  <button type="button" onclick="toggleNewKeyVisibility()" style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;" title="Toggle Visibility">
+                    <svg id="newKeyEyeIcon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  </button>
+                </div>
+                <input type="text" id="newApiKeyLabel" class="form-control" placeholder="Label (e.g. Account 2)" style="font-size: 0.82rem;">
+                <button type="button" class="btn btn-primary btn-sm" id="addKeyBtn" onclick="submitNewApiKey()" style="white-space: nowrap; height: 36px; padding: 0 14px;">
+                  <span id="addKeyBtnText">+ Add & Verify</span>
                 </button>
               </div>
-            </div>
-
-            <div style="background: var(--company-mint); border: 1px solid var(--company-light); border-radius: var(--radius-sm); padding: 12px; margin-bottom: 14px;">
-              <p style="font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4;">
-                💡 <strong>How it works:</strong> Your key is stored securely in your local browser session and sent with extraction requests to process the menu.
+              <p style="font-size: 0.74rem; color: var(--text-muted); margin: 8px 0 0; display: flex; align-items: center; gap: 5px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                <strong>Write-Only Security:</strong> Once added, keys are stored on the server and masked. They can never be viewed or copied from the UI, only tested or deleted.
               </p>
-              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 4px; font-size: 0.78rem; color: var(--company-teal); font-weight: 600; margin-top: 6px; text-decoration: underline;">
-                Get a free Gemini API key from Google AI Studio &rarr;
-              </a>
             </div>
 
-            <div id="apiKeyNoticeBox" style="font-size: 0.78rem; color: var(--text-muted);">
-              <!-- Status updated dynamically -->
+            <!-- Pool List Section -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <div style="font-size: 0.86rem; font-weight: 700; color: var(--company-dark);">
+                Configured Key Pool (<span id="keyPoolCountText">0</span>)
+              </div>
+              <button type="button" class="btn btn-secondary btn-sm" id="checkAllKeysBtn" onclick="checkAllApiKeys()" style="font-size: 0.78rem; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;">
+                <svg id="checkAllKeysIcon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                <span id="checkAllKeysBtnText">Check All API Status</span>
+              </button>
+            </div>
+
+            <!-- Keys Table -->
+            <div class="key-pool-table-wrapper" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+              <table class="key-pool-table" style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                <thead style="background: var(--bg-tertiary); position: sticky; top: 0; z-index: 1;">
+                  <tr style="text-align: left; color: var(--text-secondary); border-bottom: 1px solid var(--border-color);">
+                    <th style="padding: 8px 12px; font-weight: 600;">Label</th>
+                    <th style="padding: 8px 12px; font-weight: 600;">Masked Key</th>
+                    <th style="padding: 8px 12px; font-weight: 600;">Status & Latency</th>
+                    <th style="padding: 8px 12px; font-weight: 600;">Added</th>
+                    <th style="padding: 8px 12px; font-weight: 600; text-align: center;">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="keyPoolTableBody">
+                  <tr>
+                    <td colspan="5" style="text-align: center; padding: 24px; color: var(--text-muted);">
+                      Loading API key pool...
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div style="margin-top: 14px; display: flex; justify-content: space-between; align-items: center;">
+              <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="font-size: 0.76rem; color: var(--company-teal); text-decoration: underline; display: inline-flex; align-items: center; gap: 4px;">
+                Get extra free Gemini API keys from Google AI Studio &rarr;
+              </a>
+              <span style="font-size: 0.74rem; color: var(--text-muted);" id="keyPoolRotationStatusText">
+                Queue: Sequential Round-Robin active
+              </span>
             </div>
           </div>
 
-          <div class="modal-footer" style="justify-content: space-between;">
-            <button type="button" class="btn btn-danger btn-sm" onclick="clearApiKey()" id="clearApiKeyBtn" style="display: none;">Remove Key</button>
-            <div style="display: flex; gap: 10px; margin-left: auto;">
-              <button type="button" class="btn btn-secondary btn-sm" onclick="closeApiKeyModal()">Cancel</button>
-              <button type="button" class="btn btn-primary btn-sm" onclick="saveApiKey()">Save API Key</button>
-            </div>
+          <div class="modal-footer" style="padding: 12px 20px; justify-content: flex-end;">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="closeApiKeyModal()">Close</button>
           </div>
         </div>
       </div>

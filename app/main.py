@@ -4,7 +4,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from app.config import settings
-from app.routers import menu_router
+from app.routers import menu_router, key_router
+from app.services.key_manager import key_manager
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -20,16 +21,15 @@ templates = Jinja2Templates(directory=str(settings.TEMPLATES_DIR))
 
 # Include API Routers
 app.include_router(menu_router)
+app.include_router(key_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def serve_dashboard(request: Request):
     """
     Serves the unified frontend application dashboard.
     """
-    from dotenv import load_dotenv
-    load_dotenv(settings.BASE_DIR / ".env", override=True)
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip() or settings.GEMINI_API_KEY
-    has_gemini = bool(gemini_key and len(gemini_key) > 5)
+    key_summary = key_manager.get_pool_summary()
+    has_gemini = key_summary.get("has_any_key", False)
     
     # Pre-fetch reference template & categories for instant rendering (no loading flash)
     from app.services.category_service import category_service
@@ -52,6 +52,7 @@ async def serve_dashboard(request: Request):
             "project_name": settings.PROJECT_NAME,
             "version": settings.VERSION,
             "has_gemini_key": has_gemini,
+            "key_summary": key_summary,
             "category_count": category_count,
             "active_template": ref_file,
             "cache_id": cache_id
@@ -60,8 +61,9 @@ async def serve_dashboard(request: Request):
 
 @app.get("/api/health")
 async def health_check():
+    summary = key_manager.get_pool_summary()
     return {
         "status": "healthy",
-        "gemini_configured": bool(settings.GEMINI_API_KEY),
+        "active_keys": summary.get("active_keys", 0),
         "version": settings.VERSION
     }
