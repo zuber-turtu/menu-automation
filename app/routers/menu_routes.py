@@ -3,10 +3,13 @@ import re
 import json
 import time
 import shutil
+import uuid
+import asyncio
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 import openpyxl
 
@@ -963,7 +966,8 @@ async def extract_menu_items(
             detail="Unsupported format. Please upload PDF, PNG, JPG, WEBP, Excel (.xlsx, .xls), or CSV."
         )
 
-    saved_path = settings.UPLOAD_DIR / filename
+    session_id = uuid.uuid4().hex[:8]
+    saved_path = settings.UPLOAD_DIR / f"{session_id}_{filename}"
     with open(saved_path, "wb") as buffer:
         shutil.copyfileobj(menu_file.file, buffer)
 
@@ -1046,7 +1050,12 @@ Examine this restaurant menu spreadsheet text carefully and extract EVERY dish, 
 
 Format strictly according to the requested JSON schema.
 """
-                chunk_items = call_gemini_extraction([sheet_prompt], candidate_models, override_key=api_key)
+                chunk_items = await asyncio.to_thread(
+                    call_gemini_extraction,
+                    [sheet_prompt],
+                    candidate_models,
+                    override_key=api_key
+                )
                 if chunk_items:
                     extracted_data.extend(chunk_items)
 
@@ -1176,13 +1185,21 @@ These rules apply to EVERY dish category (Beverages, Breakfast, Fast Food, Chine
 Format strictly according to the requested JSON schema.
 """
 
-            vision_items = call_gemini_extraction(
+            vision_items = await asyncio.to_thread(
+                call_gemini_extraction,
                 [types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
                 candidate_models,
                 override_key=api_key
             )
             if vision_items:
                 extracted_data.extend(vision_items)
+
+        # Clean up temporary uploaded file from disk to prevent storage accumulation
+        if saved_path.exists():
+            try:
+                saved_path.unlink()
+            except Exception:
+                pass
 
         if not extracted_data:
             return {
@@ -1279,8 +1296,9 @@ async def generate_sheet_from_items(payload: GenerateSheetPayload):
         elif template_files:
             target_template = template_files[0]
 
-    output_filename = "formatted_menu_upload.xlsx"
-    output_path = settings.UPLOAD_DIR / output_filename
+    session_id = uuid.uuid4().hex[:8]
+    disk_filename = f"{session_id}_formatted_menu_upload.xlsx"
+    output_path = settings.UPLOAD_DIR / disk_filename
 
     if target_template and target_template.exists():
         wb = openpyxl.load_workbook(target_template)
@@ -1388,10 +1406,18 @@ async def generate_sheet_from_items(payload: GenerateSheetPayload):
 
     wb.save(output_path)
 
+    def cleanup_exported_file(path_to_delete: Path):
+        try:
+            if path_to_delete.exists():
+                path_to_delete.unlink()
+        except Exception:
+            pass
+
     return FileResponse(
         path=output_path,
-        filename=output_filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename="formatted_menu_upload.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        background=BackgroundTask(cleanup_exported_file, output_path)
     )
 
 # =====================================================================
@@ -1466,33 +1492,33 @@ CRITICAL RULES:
             "gemini-flash-latest"
         ]
 
-        raw_results = None
-        for model_name in candidate_models:
-            for attempt in range(2):
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            response_mime_type="application/json",
-                            response_schema=DescriptionsContainer
+        def _call_gemini_descriptions():
+            for model_name in candidate_models:
+                for attempt in range(2):
+                    try:
+                        response = client.models.generate_content(
+                            model=model_name,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json",
+                                response_schema=DescriptionsContainer
+                            )
                         )
-                    )
-                    if response.text:
-                        parsed = json.loads(response.text)
-                        raw_results = parsed.get("descriptions", [])
+                        if response.text:
+                            parsed = json.loads(response.text)
+                            return parsed.get("descriptions", [])
+                    except Exception as model_err:
+                        err_str = str(model_err)
+                        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+                            key_manager.mark_rate_limited(key_id, cooldown_seconds=60)
+                            break
+                        if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
+                            time.sleep(1.0)
+                            continue
                         break
-                except Exception as model_err:
-                    err_str = str(model_err)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
-                        key_manager.mark_rate_limited(key_id, cooldown_seconds=60)
-                        break
-                    if "503" in err_str or "UNAVAILABLE" in err_str or "high demand" in err_str:
-                        time.sleep(1.0)
-                        continue
-                    break
-            if raw_results is not None:
-                break
+            return None
+
+        raw_results = await asyncio.to_thread(_call_gemini_descriptions)
 
         if raw_results is None:
             raise HTTPException(status_code=503, detail="Gemini AI is temporarily busy. Please try again.")
