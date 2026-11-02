@@ -23,6 +23,11 @@ def init_storage() -> BaseStorage:
     global _storage_instance
 
     requested_type = (settings.STORAGE_TYPE or "sqlite").strip().lower()
+    
+    # Auto-detect Supabase on Render / Cloud platforms if DATABASE_URL or SUPABASE_URL is configured
+    if requested_type == "sqlite" and (settings.DATABASE_URL or (settings.SUPABASE_URL and settings.SUPABASE_KEY)):
+        requested_type = "supabase"
+
     selected_storage: Optional[BaseStorage] = None
 
     # 1. Supabase Cloud Storage

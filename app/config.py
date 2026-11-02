@@ -32,15 +32,11 @@ DEFAULT_TARGET_PORTAL_URL=
 GEMINI_API_KEY=
 """
 
-if not ENV_FILE.exists():
-    try:
-        with open(ENV_FILE, "w", encoding="utf-8") as f:
-            f.write(DEFAULT_ENV_CONTENT)
-    except Exception as e:
-        pass
-
-# Load .env file
-load_dotenv(ENV_FILE, override=True)
+# Load .env file (override=False ensures Render / Cloud environment variables take priority)
+if ENV_FILE.exists():
+    load_dotenv(ENV_FILE, override=False)
+else:
+    load_dotenv(override=False)
 
 # Safe helper functions that gracefully handle None, empty strings, and type conversions
 def _get_env_str(key: str, default: str) -> str:
