@@ -1,342 +1,342 @@
 [
   {
-    "id": "11",
-    "name": "Indian"
-  },
-  {
-    "id": "13",
-    "name": "Kebabs"
-  },
-  {
-    "id": "17",
-    "name": "Starters"
-  },
-  {
-    "id": "63",
-    "name": "Fries"
-  },
-  {
-    "id": "64",
-    "name": "Ice Cream"
-  },
-  {
-    "id": "65",
-    "name": "Juice"
-  },
-  {
-    "id": "66",
-    "name": "Pani Puri"
-  },
-  {
-    "id": "67",
-    "name": "Chaat"
-  },
-  {
-    "id": "68",
-    "name": "Paratha"
-  },
-  {
-    "id": "69",
-    "name": "South Indian"
-  },
-  {
-    "id": "70",
-    "name": "Waffles"
-  },
-  {
-    "id": "71",
-    "name": "Pastry"
-  },
-  {
-    "id": "72",
-    "name": "Chinese"
-  },
-  {
-    "id": "73",
-    "name": "Thali"
-  },
-  {
-    "id": "74",
-    "name": "Paneer"
-  },
-  {
-    "id": "75",
-    "name": "Sweets"
-  },
-  {
-    "id": "76",
-    "name": "Biryani"
-  },
-  {
-    "id": "77",
-    "name": "Pav Bhaji"
-  },
-  {
-    "id": "78",
-    "name": "Dosa"
-  },
-  {
-    "id": "81",
-    "name": "Sundae"
-  },
-  {
-    "id": "82",
-    "name": "Fried Rice"
-  },
-  {
-    "id": "83",
-    "name": "Khichadi"
-  },
-  {
-    "id": "84",
-    "name": "Pizza"
-  },
-  {
-    "id": "85",
-    "name": "Manchurian"
-  },
-  {
-    "id": "86",
-    "name": "Daal"
-  },
-  {
-    "id": "87",
-    "name": "Idli"
-  },
-  {
-    "id": "88",
-    "name": "Soup"
-  },
-  {
-    "id": "89",
-    "name": "Pulao"
-  },
-  {
-    "id": "90",
-    "name": "Noodles"
-  },
-  {
-    "id": "91",
-    "name": "Kulfi"
-  },
-  {
-    "id": "92",
-    "name": "Shake"
-  },
-  {
-    "id": "93",
-    "name": "Pasta"
-  },
-  {
-    "id": "94",
-    "name": "Samosa"
-  },
-  {
-    "id": "95",
-    "name": "Sev Puri"
-  },
-  {
-    "id": "96",
-    "name": "Vada Pav"
-  },
-  {
-    "id": "97",
-    "name": "Vada"
-  },
-  {
-    "id": "98",
-    "name": "Cake"
-  },
-  {
-    "id": "99",
-    "name": "Pan Cake"
-  },
-  {
-    "id": "100",
-    "name": "Burger"
-  },
-  {
-    "id": "103",
-    "name": "Jain Food"
-  },
-  {
-    "id": "853",
-    "name": "Beverage"
-  },
-  {
-    "id": "854",
-    "name": "Rice"
-  },
-  {
-    "id": "855",
-    "name": "Roti"
-  },
-  {
-    "id": "858",
-    "name": "Main Course"
-  },
-  {
-    "id": "859",
-    "name": "Deserts"
-  },
-  {
-    "id": "862",
-    "name": "Egg"
-  },
-  {
-    "id": "1663",
-    "name": "Seafood"
-  },
-  {
-    "id": "1666",
-    "name": "Momos"
-  },
-  {
-    "id": "1672",
-    "name": "Sandwich"
-  },
-  {
-    "id": "1675",
-    "name": "Mocktails"
-  },
-  {
-    "id": "1680",
-    "name": "Salad"
+    "id": "1924",
+    "name": "Add-ons"
   },
   {
     "id": "1855",
     "name": "AlooPuri"
   },
   {
-    "id": "1857",
-    "name": "Khausa"
-  },
-  {
-    "id": "1892",
-    "name": "Burger"
-  },
-  {
-    "id": "1894",
-    "name": "Frozen Foods"
-  },
-  {
-    "id": "1895",
-    "name": "Dairy &amp; Milk Product..."
-  },
-  {
     "id": "1896",
     "name": "Besan, Sooji &amp; Maida"
   },
   {
-    "id": "1897",
-    "name": "Gotala"
+    "id": "853",
+    "name": "Beverage"
+  },
+  {
+    "id": "76",
+    "name": "Biryani"
   },
   {
     "id": "1898",
     "name": "Bites"
   },
   {
-    "id": "1899",
-    "name": "Rice Bowl"
-  },
-  {
-    "id": "1900",
-    "name": "Kulcha"
+    "id": "1911",
+    "name": "Breakfast Items"
   },
   {
     "id": "1901",
     "name": "Bruscetta"
   },
   {
-    "id": "1902",
-    "name": "Nachos"
+    "id": "100",
+    "name": "Burger"
   },
   {
-    "id": "1903",
-    "name": "Shawarma"
+    "id": "1892",
+    "name": "Burger"
   },
   {
-    "id": "1904",
-    "name": "Ice Cream Creations"
+    "id": "98",
+    "name": "Cake"
   },
   {
-    "id": "1905",
-    "name": "Ice Cream Bars &amp; Pop..."
+    "id": "67",
+    "name": "Chaat"
   },
   {
-    "id": "1906",
-    "name": "Cones &amp; Cups"
-  },
-  {
-    "id": "1907",
-    "name": "Only 99"
-  },
-  {
-    "id": "1908",
-    "name": "Papad, Salad &amp; Raita"
-  },
-  {
-    "id": "1909",
-    "name": "Curry"
-  },
-  {
-    "id": "1910",
-    "name": "Meals"
-  },
-  {
-    "id": "1911",
-    "name": "Breakfast Items"
-  },
-  {
-    "id": "1912",
-    "name": "Snacks &amp; Chaats"
-  },
-  {
-    "id": "1919",
-    "name": "Rolls &amp; Wraps"
-  },
-  {
-    "id": "1920",
-    "name": "Cutlet"
-  },
-  {
-    "id": "1921",
-    "name": "Frankie"
+    "id": "72",
+    "name": "Chinese"
   },
   {
     "id": "1922",
     "name": "Chinese Starter"
   },
   {
-    "id": "1923",
-    "name": "Tandoori Starters"
+    "id": "1906",
+    "name": "Cones &amp; Cups"
   },
   {
-    "id": "1924",
-    "name": "Add-ons"
+    "id": "1909",
+    "name": "Curry"
   },
   {
-    "id": "1925",
-    "name": "Snacks,Namakeens &amp; M..."
+    "id": "1920",
+    "name": "Cutlet"
   },
   {
-    "id": "1926",
-    "name": "Salad"
+    "id": "86",
+    "name": "Daal"
   },
   {
-    "id": "1927",
-    "name": "Mojitos &amp; Mocktails"
+    "id": "1895",
+    "name": "Dairy &amp; Milk Product..."
   },
   {
-    "id": "1928",
-    "name": "Starters &amp; Sides"
+    "id": "859",
+    "name": "Deserts"
+  },
+  {
+    "id": "78",
+    "name": "Dosa"
+  },
+  {
+    "id": "862",
+    "name": "Egg"
   },
   {
     "id": "1929",
     "name": "Egg"
   },
   {
+    "id": "1921",
+    "name": "Frankie"
+  },
+  {
+    "id": "82",
+    "name": "Fried Rice"
+  },
+  {
+    "id": "63",
+    "name": "Fries"
+  },
+  {
+    "id": "1894",
+    "name": "Frozen Foods"
+  },
+  {
+    "id": "1897",
+    "name": "Gotala"
+  },
+  {
+    "id": "64",
+    "name": "Ice Cream"
+  },
+  {
+    "id": "1905",
+    "name": "Ice Cream Bars &amp; Pop..."
+  },
+  {
+    "id": "1904",
+    "name": "Ice Cream Creations"
+  },
+  {
+    "id": "87",
+    "name": "Idli"
+  },
+  {
+    "id": "11",
+    "name": "Indian"
+  },
+  {
     "id": "1930",
     "name": "Indian"
+  },
+  {
+    "id": "103",
+    "name": "Jain Food"
+  },
+  {
+    "id": "65",
+    "name": "Juice"
+  },
+  {
+    "id": "13",
+    "name": "Kebabs"
+  },
+  {
+    "id": "1857",
+    "name": "Khausa"
+  },
+  {
+    "id": "83",
+    "name": "Khichadi"
+  },
+  {
+    "id": "1900",
+    "name": "Kulcha"
+  },
+  {
+    "id": "91",
+    "name": "Kulfi"
+  },
+  {
+    "id": "858",
+    "name": "Main Course"
+  },
+  {
+    "id": "85",
+    "name": "Manchurian"
+  },
+  {
+    "id": "1910",
+    "name": "Meals"
+  },
+  {
+    "id": "1675",
+    "name": "Mocktails"
+  },
+  {
+    "id": "1927",
+    "name": "Mojitos &amp; Mocktails"
+  },
+  {
+    "id": "1666",
+    "name": "Momos"
+  },
+  {
+    "id": "1902",
+    "name": "Nachos"
+  },
+  {
+    "id": "90",
+    "name": "Noodles"
+  },
+  {
+    "id": "1907",
+    "name": "Only 99"
+  },
+  {
+    "id": "99",
+    "name": "Pan Cake"
+  },
+  {
+    "id": "74",
+    "name": "Paneer"
+  },
+  {
+    "id": "66",
+    "name": "Pani Puri"
+  },
+  {
+    "id": "1908",
+    "name": "Papad, Salad &amp; Raita"
+  },
+  {
+    "id": "68",
+    "name": "Paratha"
+  },
+  {
+    "id": "93",
+    "name": "Pasta"
+  },
+  {
+    "id": "71",
+    "name": "Pastry"
+  },
+  {
+    "id": "77",
+    "name": "Pav Bhaji"
+  },
+  {
+    "id": "84",
+    "name": "Pizza"
+  },
+  {
+    "id": "89",
+    "name": "Pulao"
+  },
+  {
+    "id": "854",
+    "name": "Rice"
+  },
+  {
+    "id": "1899",
+    "name": "Rice Bowl"
+  },
+  {
+    "id": "1919",
+    "name": "Rolls &amp; Wraps"
+  },
+  {
+    "id": "855",
+    "name": "Roti"
+  },
+  {
+    "id": "1680",
+    "name": "Salad"
+  },
+  {
+    "id": "1926",
+    "name": "Salad"
+  },
+  {
+    "id": "94",
+    "name": "Samosa"
+  },
+  {
+    "id": "1672",
+    "name": "Sandwich"
+  },
+  {
+    "id": "1663",
+    "name": "Seafood"
+  },
+  {
+    "id": "95",
+    "name": "Sev Puri"
+  },
+  {
+    "id": "92",
+    "name": "Shake"
+  },
+  {
+    "id": "1903",
+    "name": "Shawarma"
+  },
+  {
+    "id": "1912",
+    "name": "Snacks &amp; Chaats"
+  },
+  {
+    "id": "1925",
+    "name": "Snacks,Namakeens &amp; M..."
+  },
+  {
+    "id": "88",
+    "name": "Soup"
+  },
+  {
+    "id": "69",
+    "name": "South Indian"
+  },
+  {
+    "id": "17",
+    "name": "Starters"
+  },
+  {
+    "id": "1928",
+    "name": "Starters &amp; Sides"
+  },
+  {
+    "id": "81",
+    "name": "Sundae"
+  },
+  {
+    "id": "75",
+    "name": "Sweets"
+  },
+  {
+    "id": "1923",
+    "name": "Tandoori Starters"
+  },
+  {
+    "id": "73",
+    "name": "Thali"
+  },
+  {
+    "id": "97",
+    "name": "Vada"
+  },
+  {
+    "id": "96",
+    "name": "Vada Pav"
+  },
+  {
+    "id": "70",
+    "name": "Waffles"
   }
 ]

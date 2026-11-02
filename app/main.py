@@ -54,6 +54,7 @@ async def serve_dashboard(request: Request):
             "has_gemini_key": has_gemini,
             "key_summary": key_summary,
             "category_count": category_count,
+            "storage_info": key_manager.get_storage_info(),
             "active_template": ref_file,
             "cache_id": cache_id
         }
@@ -65,5 +66,6 @@ async def health_check():
     return {
         "status": "healthy",
         "active_keys": summary.get("active_keys", 0),
+        "storage": key_manager.get_storage_info(),
         "version": settings.VERSION
     }

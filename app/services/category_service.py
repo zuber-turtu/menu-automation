@@ -1,28 +1,52 @@
 import csv
 import json
 import difflib
+import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from app.config import settings
+from app.services.storage import get_storage, BaseStorage
+
+logger = logging.getLogger("menu_automation.category_service")
 
 class CategoryService:
-    def __init__(self):
+    """
+    Turtu Category Taxonomy Service with:
+    - High-speed in-memory fuzzy matching and reverse lookup
+    - Pluggable persistent storage (SQLite, Supabase, or Local JSON)
+    - Auto-seeding from categories_turtu.csv
+    """
+
+    def __init__(self, storage: Optional[BaseStorage] = None):
+        self.storage = storage or get_storage()
         self.categories: Dict[str, str] = {}  # Normalized name -> Category ID
         self.category_list: List[Dict[str, str]] = []  # [{"id": "...", "name": "..."}, ...]
         self.storage_file = settings.REFERENCE_DIR / "categories.json"
         self._initialize_categories()
 
     def _initialize_categories(self):
-        """Loads categories from stored JSON if present, or automatically imports from categories_turtu.csv."""
+        """Loads categories from active storage backend, falling back to stored JSON or categories_turtu.csv."""
+        try:
+            stored_cats = self.storage.get_categories()
+            if stored_cats:
+                self.category_list = stored_cats
+                self._rebuild_lookup()
+                logger.info(f"Loaded {len(stored_cats)} categories from {self.storage.get_storage_label()}.")
+                return
+        except Exception as e:
+            logger.error(f"Error reading categories from {self.storage.get_storage_label()}: {e}")
+
+        # Fallback to local categories.json
         if self.storage_file.exists():
             try:
                 with open(self.storage_file, "r", encoding="utf-8") as f:
                     self.category_list = json.load(f)
                     self._rebuild_lookup()
                 if self.category_list:
+                    self.storage.save_categories(self.category_list)
                     return
             except Exception as e:
-                print(f"Error reading {self.storage_file}: {e}")
+                logger.error(f"Error reading {self.storage_file}: {e}")
 
         # Fallback to categories_turtu.csv in BASE_DIR
         csv_path = settings.BASE_DIR / "categories_turtu.csv"
@@ -38,12 +62,80 @@ class CategoryService:
                 self.categories[name.lower()] = cid
 
     def save_to_storage(self):
-        """Persists active categories to JSON file."""
+        """Persists active categories to both active storage engine and local backup file."""
+        try:
+            self.storage.save_categories(self.category_list)
+        except Exception as e:
+            logger.error(f"Failed to save categories to {self.storage.get_storage_label()}: {e}")
+
+        # Always maintain local backup
         try:
             with open(self.storage_file, "w", encoding="utf-8") as f:
                 json.dump(self.category_list, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"Failed to save categories: {e}")
+            logger.error(f"Failed to save categories backup {self.storage_file}: {e}")
+
+    def add_category(self, category_id: str, name: str) -> Tuple[bool, str, Optional[Dict]]:
+        """Adds or updates a category in the active taxonomy registry."""
+        cid = str(category_id).strip()
+        cname = str(name).strip()
+        if not cid:
+            return False, "Category ID is required.", None
+        if not cname:
+            return False, "Category Name is required.", None
+
+        existing_idx = -1
+        for idx, item in enumerate(self.category_list):
+            if str(item.get("id")) == cid:
+                existing_idx = idx
+                break
+
+        record = {"id": cid, "name": cname}
+        if existing_idx >= 0:
+            self.category_list[existing_idx] = record
+            msg = f"Updated category ID '{cid}' to '{cname}'."
+        else:
+            self.category_list.append(record)
+            msg = f"Added category '{cname}' (ID: {cid})."
+
+        self._rebuild_lookup()
+
+        try:
+            self.storage.add_category(cid, cname)
+        except Exception as e:
+            logger.error(f"Error persisting category to storage: {e}")
+
+        try:
+            with open(self.storage_file, "w", encoding="utf-8") as f:
+                json.dump(self.category_list, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving categories backup {self.storage_file}: {e}")
+
+        return True, msg, record
+
+    def delete_category(self, category_id: str) -> Tuple[bool, str]:
+        """Deletes a category by its ID from the active taxonomy registry."""
+        cid = str(category_id).strip()
+        initial_len = len(self.category_list)
+        self.category_list = [c for c in self.category_list if str(c.get("id")) != cid]
+
+        if len(self.category_list) == initial_len:
+            return False, f"Category ID '{cid}' not found."
+
+        self._rebuild_lookup()
+
+        try:
+            self.storage.delete_category(cid)
+        except Exception as e:
+            logger.error(f"Error deleting category from storage: {e}")
+
+        try:
+            with open(self.storage_file, "w", encoding="utf-8") as f:
+                json.dump(self.category_list, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Error saving categories backup {self.storage_file}: {e}")
+
+        return True, f"Category ID '{cid}' deleted successfully."
 
     def load_from_csv_content(self, content_str: str) -> int:
         """Parses CSV string content and replaces the active category store completely."""
@@ -73,7 +165,6 @@ class CategoryService:
                 name_idx = 1
             else:
                 return 0
-            # If row 0 column is numeric, there is no header row
             if rows[0][id_idx].strip().isdigit():
                 has_header = False
 
@@ -92,7 +183,6 @@ class CategoryService:
                         seen_ids.add(cid)
                         new_categories.append({"id": cid, "name": name})
 
-        # Overwrite category store completely with newly uploaded categories (no old categories retained)
         if new_categories:
             self.category_list = new_categories
             self._rebuild_lookup()
@@ -154,7 +244,6 @@ class CategoryService:
                                 seen_ids.add(cid)
                                 new_categories.append({"id": cid, "name": name})
 
-            # Overwrite category store completely with newly uploaded categories (no old categories retained)
             if new_categories:
                 self.category_list = new_categories
                 self._rebuild_lookup()
@@ -162,7 +251,7 @@ class CategoryService:
                 return len(self.category_list)
             return 0
         except Exception as e:
-            print(f"Error loading Excel categories: {e}")
+            logger.error(f"Error loading Excel categories: {e}")
             return 0
 
     def load_from_csv_file(self, filepath: Path) -> int:
@@ -172,7 +261,7 @@ class CategoryService:
                 content = f.read()
             return self.load_from_csv_content(content)
         except Exception as e:
-            print(f"Error loading CSV from {filepath}: {e}")
+            logger.error(f"Error loading CSV from {filepath}: {e}")
             return 0
 
     def get_all(self) -> List[Dict[str, str]]:
@@ -196,7 +285,6 @@ class CategoryService:
                     return cid, item["name"]
 
         # 2. Check if any category name is contained within the dish name
-        # Sorted by length descending so longer category matches take priority
         sorted_cats = sorted(self.category_list, key=lambda x: len(x["name"]), reverse=True)
         for cat in sorted_cats:
             cname = cat["name"].lower()

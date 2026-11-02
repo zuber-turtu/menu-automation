@@ -21,14 +21,95 @@ async def get_keys():
         "summary": key_manager.get_pool_summary()
     }
 
+SUPABASE_SQL_SETUP = """-- Supabase One-Time Table Setup Script
+-- Copy and paste this into Supabase Dashboard -> SQL Editor -> Run:
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    label TEXT NOT NULL,
+    key TEXT NOT NULL,
+    masked_key TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    latency_ms INT,
+    last_checked_at TEXT,
+    created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_cat_name ON categories (LOWER(name));
+"""
+
+class SwitchStoragePayload(BaseModel):
+    storage_type: str
+
 @router.get("/summary")
 async def get_summary():
     """
-    Returns summary statistics of active keys for the header pill.
+    Returns summary statistics of active keys and storage engine for the header pill.
     """
     return {
         "status": "success",
         "summary": key_manager.get_pool_summary()
+    }
+
+@router.get("/storage")
+async def get_storage_status():
+    """
+    Returns active storage engine information, health status, and setup instructions.
+    """
+    status_info = key_manager.storage.get_status_info()
+    return {
+        "status": "success",
+        "storage": {
+            **status_info,
+            "sql_setup": SUPABASE_SQL_SETUP
+        }
+    }
+
+@router.post("/storage/retry")
+async def retry_storage_connection():
+    """
+    Re-tests storage connection and runs auto-seeding if tables are now available.
+    """
+    from app.services.storage import _auto_seed_storage
+    storage = key_manager.storage
+    ok, msg = storage.ping()
+    if ok:
+        _auto_seed_storage(storage)
+        from app.services.category_service import category_service
+        category_service._initialize_categories()
+    return {
+        "status": "success" if ok else "warning",
+        "healthy": ok,
+        "message": msg,
+        "storage": storage.get_status_info()
+    }
+
+@router.post("/storage/switch")
+async def switch_storage_engine(payload: SwitchStoragePayload):
+    """
+    Explicitly switches active storage engine upon user confirmation from dashboard.
+    """
+    from app.services.storage import set_active_storage
+    target = payload.storage_type.lower().strip()
+    if target not in ["sqlite", "local", "supabase"]:
+        raise HTTPException(status_code=400, detail="Invalid storage type. Choose 'sqlite', 'supabase', or 'local'.")
+
+    new_storage = set_active_storage(target)
+    key_manager.storage = new_storage
+    from app.services.category_service import category_service
+    category_service.storage = new_storage
+    category_service._initialize_categories()
+
+    return {
+        "status": "success",
+        "message": f"Successfully switched storage engine to {new_storage.get_storage_label()}.",
+        "storage": new_storage.get_status_info()
     }
 
 @router.post("")

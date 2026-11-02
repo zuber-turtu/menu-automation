@@ -679,6 +679,10 @@ class MenuItemPayload(BaseModel):
     available_time_ends: Optional[str] = None
     recommended: Optional[str] = "no"
 
+class AddCategoryPayload(BaseModel):
+    id: str
+    name: str
+
 class GenerateSheetPayload(BaseModel):
     items: List[MenuItemPayload]
     template_filename: Optional[str] = None
@@ -720,6 +724,42 @@ async def get_categories():
         "status": "success",
         "count": len(cats),
         "categories": cats
+    }
+
+@router.post("/categories")
+async def add_category(payload: AddCategoryPayload):
+    """
+    Adds or updates a single category in the active taxonomy registry.
+    """
+    cid = str(payload.id).strip()
+    name = str(payload.name).strip()
+    if not cid or not name:
+        raise HTTPException(status_code=400, detail="Category ID and Name are required.")
+
+    success, message, record = category_service.add_category(cid, name)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    return {
+        "status": "success",
+        "message": message,
+        "category": record,
+        "count": len(category_service.get_all())
+    }
+
+@router.delete("/categories/{category_id}")
+async def delete_category(category_id: str):
+    """
+    Deletes a category from the active taxonomy registry.
+    """
+    success, message = category_service.delete_category(category_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=message)
+
+    return {
+        "status": "success",
+        "message": message,
+        "count": len(category_service.get_all())
     }
 
 @router.post("/upload-categories")

@@ -17,6 +17,13 @@ document.addEventListener('DOMContentLoaded', () => {
   initBatchSettings();
   initApiKeyStatus();
 
+  // Restore preview panel collapse state preference
+  try {
+    if (localStorage.getItem('menu_preview_collapsed') === '1') {
+      toggleDocPreview(false);
+    }
+  } catch (e) {}
+
   // Escape key closes modals
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -362,7 +369,38 @@ function processMenuFile(file) {
       </div>
     `;
   }
+
+  // Ensure original menu preview is visible when a document is selected
+  toggleDocPreview(true);
 }
+
+// =====================================================================
+// 2b. Document Preview Panel Toggle (Collapse / Expand Sidebar)
+// =====================================================================
+
+function toggleDocPreview(shouldShow = null) {
+  const ws = document.getElementById('reviewWorkspace');
+  const showBtn = document.getElementById('showDocPreviewBtn');
+  if (!ws) return;
+
+  const isCurrentlyCollapsed = ws.classList.contains('preview-collapsed');
+  const willBeCollapsed = (shouldShow !== null) ? !shouldShow : !isCurrentlyCollapsed;
+
+  if (willBeCollapsed) {
+    ws.classList.add('preview-collapsed');
+    if (showBtn) showBtn.style.display = 'inline-flex';
+    try { localStorage.setItem('menu_preview_collapsed', '1'); } catch (e) {}
+  } else {
+    ws.classList.remove('preview-collapsed');
+    if (showBtn) showBtn.style.display = 'none';
+    try { localStorage.setItem('menu_preview_collapsed', '0'); } catch (e) {}
+  }
+
+  // Trigger resize event so responsive tables/canvases adjust cleanly
+  window.dispatchEvent(new Event('resize'));
+}
+
+window.toggleDocPreview = toggleDocPreview;
 
 // =====================================================================
 // 3. AI Extraction with Gemini

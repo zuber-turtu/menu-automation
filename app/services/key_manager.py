@@ -6,7 +6,8 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from threading import Lock
-from dotenv import load_dotenv
+
+from app.services.storage import get_storage, BaseStorage
 
 logger = logging.getLogger("menu_automation.key_manager")
 
@@ -14,56 +15,33 @@ class KeyManager:
     """
     Thread-safe Gemini API Key Pool Manager with:
     - Strict sequential Round-Robin rotation (Key 1 -> Key 2 -> Key 3 -> Key 1)
-    - Write-only security (raw keys stored on server, only masked keys returned to UI)
+    - Write-only security (raw keys stored in database/storage, only masked keys returned to UI)
     - Real-time health check & latency testing
     - Automatic 429 rate-limit cooldown & failover
-    - Automatic fallback to .env GEMINI_API_KEY
+    - Pluggable storage engine (SQLite, Supabase, or Local JSON)
     """
 
-    def __init__(self, data_dir: Optional[Path] = None):
-        if data_dir is None:
-            # Default to <project_root>/data
-            self.data_dir = Path(__file__).resolve().parent.parent.parent / "data"
-        else:
-            self.data_dir = Path(data_dir)
-            
-        self.data_dir.mkdir(parents=True, exist_ok=True)
-        self.keys_file = self.data_dir / "api_keys.json"
+    def __init__(self, storage: Optional[BaseStorage] = None):
+        self.storage = storage or get_storage()
         self._lock = Lock()
         self._current_index = 0
         self._cooldowns: Dict[str, float] = {}  # key_id -> unblock timestamp
-        
-        # Initialize storage and pre-seed from .env if empty
-        self._init_storage()
-
-    def _init_storage(self):
-        """Initializes keys file if it does not exist."""
-        with self._lock:
-            if not self.keys_file.exists():
-                self._save_raw_keys([])
 
     def _read_raw_keys(self) -> List[Dict]:
-        """Reads keys list directly from json file."""
-        if not self.keys_file.exists():
-            return []
+        """Reads keys list directly from active storage backend."""
         try:
-            with open(self.keys_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+            return self.storage.get_api_keys()
         except Exception as e:
-            logger.error(f"Error reading {self.keys_file}: {e}")
+            logger.error(f"Error reading keys from storage: {e}")
             return []
 
-    def _save_raw_keys(self, keys: List[Dict]):
-        """Persists keys list to json file safely."""
-        temp_file = self.keys_file.with_suffix(".tmp")
+    def _save_raw_keys(self, keys: List[Dict]) -> bool:
+        """Persists keys list to active storage backend."""
         try:
-            with open(temp_file, "w", encoding="utf-8") as f:
-                json.dump(keys, f, indent=2)
-            temp_file.replace(self.keys_file)
+            return self.storage.save_api_keys(keys)
         except Exception as e:
-            logger.error(f"Error saving {self.keys_file}: {e}")
-            if temp_file.exists():
-                temp_file.unlink()
+            logger.error(f"Error saving keys to storage: {e}")
+            return False
 
     @staticmethod
     def mask_key(key: str) -> str:
@@ -71,7 +49,6 @@ class KeyManager:
         if not key or len(key) < 10:
             return "••••••••"
         return f"{key[:6]}••••••••{key[-4:]}"
-
 
     def list_keys(self) -> List[Dict]:
         """
@@ -112,7 +89,6 @@ class KeyManager:
         Sequential Round-Robin key selector.
         Returns: (raw_key, key_id, label)
         Skips invalid or rate-limited keys.
-        Falls back to .env key if no pool keys are available.
         """
         with self._lock:
             raw_keys = self._read_raw_keys()
@@ -158,7 +134,6 @@ class KeyManager:
         t0 = time.time()
         try:
             client = genai.Client(api_key=raw_key.strip())
-            # Fast ping with minimal token output
             resp = client.models.generate_content(
                 model="gemini-3.5-flash-lite",
                 contents="ping",
@@ -179,13 +154,12 @@ class KeyManager:
             if "400" in err_msg or "403" in err_msg or "API_KEY_INVALID" in err_msg or "PERMISSION_DENIED" in err_msg:
                 return False, latency, "Invalid or expired API Key (403)"
             if "503" in err_msg or "UNAVAILABLE" in err_msg:
-                # Key itself is valid, but Google server is busy
                 return True, latency, "Key valid (Gemini server currently busy)"
             return False, latency, f"Verification failed: {err_msg[:80]}"
 
     def add_key(self, raw_key: str, label: Optional[str] = None) -> Tuple[bool, str, Optional[Dict]]:
         """
-        Validates, masks, and adds a new key to the pool.
+        Validates, masks, and adds a new key to the active storage.
         Returns: (success, message, masked_key_record)
         """
         raw_key = raw_key.strip()
@@ -207,6 +181,7 @@ class KeyManager:
         clean_label = (label or "").strip() or f"Key #{len(existing) + 1}"
         masked = self.mask_key(raw_key)
         status = "rate_limited" if "429" in msg else "active"
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
 
         record = {
             "id": key_id,
@@ -215,16 +190,14 @@ class KeyManager:
             "masked_key": masked,
             "status": status,
             "latency_ms": latency,
-            "last_checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "created_at": time.strftime("%Y-%m-%d %H:%M:%S")
+            "last_checked_at": now_str,
+            "created_at": now_str
         }
 
         with self._lock:
-            keys = self._read_raw_keys()
-            keys.append(record)
-            self._save_raw_keys(keys)
+            self.storage.add_api_key(record)
             
-        logger.info(f"Added new key '{clean_label}' ({masked}) to pool. Latency: {latency}ms")
+        logger.info(f"Added new key '{clean_label}' ({masked}) to {self.storage.get_storage_label()}. Latency: {latency}ms")
         
         # Return masked public record
         public_record = {
@@ -239,18 +212,15 @@ class KeyManager:
         return True, "API Key validated and successfully added to pool!", public_record
 
     def delete_key(self, key_id: str) -> Tuple[bool, str]:
-        """Deletes a key from the pool."""
+        """Deletes a key from storage."""
         with self._lock:
-            keys = self._read_raw_keys()
-            initial_count = len(keys)
-            updated = [k for k in keys if k.get("id") != key_id]
-            if len(updated) == initial_count:
+            success = self.storage.delete_api_key(key_id)
+            if not success:
                 return False, f"Key ID '{key_id}' not found."
                 
-            self._save_raw_keys(updated)
             if key_id in self._cooldowns:
                 del self._cooldowns[key_id]
-            logger.info(f"Deleted key {key_id} from pool")
+            logger.info(f"Deleted key {key_id} from {self.storage.get_storage_label()}")
             return True, "Key deleted successfully."
 
     def test_key(self, key_id: str) -> Dict:
@@ -267,16 +237,14 @@ class KeyManager:
 
         is_valid, latency, msg = self.verify_key_live(target["key"])
         new_status = "active" if is_valid else ("rate_limited" if "429" in msg else "invalid")
-        
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+
         with self._lock:
-            keys = self._read_raw_keys()
-            for k in keys:
-                if k.get("id") == key_id:
-                    k["status"] = new_status
-                    k["latency_ms"] = latency
-                    k["last_checked_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                    break
-            self._save_raw_keys(keys)
+            self.storage.update_api_key(key_id, {
+                "status": new_status,
+                "latency_ms": latency,
+                "last_checked_at": now_str
+            })
 
         return {
             "id": key_id,
@@ -315,6 +283,13 @@ class KeyManager:
 
         return results
 
+    def get_storage_info(self) -> Dict:
+        """Returns active storage backend details for UI display."""
+        return {
+            "type": self.storage.get_storage_type(),
+            "label": self.storage.get_storage_label()
+        }
+
     def get_pool_summary(self) -> Dict:
         """Returns high-level statistics for the header pill and UI."""
         keys = self.list_keys()
@@ -327,7 +302,8 @@ class KeyManager:
             "active_keys": active_count,
             "rate_limited_keys": rate_limited_count,
             "invalid_keys": invalid_count,
-            "has_any_key": (active_count > 0)
+            "has_any_key": (active_count > 0),
+            "storage": self.get_storage_info()
         }
 
 key_manager = KeyManager()
