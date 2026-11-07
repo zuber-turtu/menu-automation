@@ -191,7 +191,7 @@ function renderCategoriesTable(categories) {
   if (!categories || categories.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" class="text-center text-muted" style="padding: 36px 16px;">
+        <td colspan="5" class="text-center text-muted" style="padding: 36px 16px;">
           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom: 8px; opacity: 0.5;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <div style="font-weight: 600;">No categories match your search</div>
           <div style="font-size: 0.8rem; margin-top: 4px;">Try searching for a different keyword or category ID number.</div>
@@ -214,9 +214,105 @@ function renderCategoriesTable(categories) {
         <span class="status-indicator active" style="margin-right: 6px;"></span>
         <span style="font-size: 0.78rem; font-weight: 600; color: var(--company-teal);">Active Portal ID</span>
       </td>
+      <td style="text-align: center;">
+        <button type="button" class="key-delete-btn" onclick="deleteCategory('${escapeHtml(String(cat.id))}', '${escapeHtml(String(cat.name))}')" title="Delete Category from Registry">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+        </button>
+      </td>
     </tr>
   `).join('');
 }
+
+function toggleAddCategoryCard() {
+  const card = document.getElementById('addCategoryCard');
+  if (!card) return;
+  const isHidden = card.style.display === 'none' || !card.style.display;
+  card.style.display = isHidden ? 'block' : 'none';
+  if (isHidden) {
+    const idInput = document.getElementById('newCategoryIdInput');
+    if (idInput) idInput.focus();
+  }
+}
+
+async function submitNewCategory() {
+  const idInput = document.getElementById('newCategoryIdInput');
+  const nameInput = document.getElementById('newCategoryNameInput');
+  const btn = document.getElementById('saveCategoryBtn');
+  const btnText = document.getElementById('saveCategoryBtnText');
+
+  const cid = (idInput ? idInput.value : '').trim();
+  const name = (nameInput ? nameInput.value : '').trim();
+
+  if (!cid) {
+    showToast("Please enter a Category ID (e.g. 105)", "warning");
+    if (idInput) idInput.focus();
+    return;
+  }
+  if (!name) {
+    showToast("Please enter a Category Name (e.g. Mandi & Kabsa)", "warning");
+    if (nameInput) nameInput.focus();
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+  if (btnText) btnText.innerText = "Saving...";
+
+  try {
+    const res = await fetch('/api/menu/categories', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cid, name: name })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || "Failed to add category");
+    }
+
+    showToast(data.message || `Category '${name}' added successfully!`, "success");
+
+    // Clear inputs
+    if (idInput) idInput.value = '';
+    if (nameInput) nameInput.value = '';
+
+    // Refresh categories taxonomy list
+    await fetchCategories();
+
+    // Focus input for quick next entry
+    if (idInput) idInput.focus();
+  } catch (err) {
+    console.error("Save category error:", err);
+    showToast(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.innerText = "+ Save Category";
+  }
+}
+
+async function deleteCategory(categoryId, categoryName) {
+  if (!confirm(`Are you sure you want to delete category '${categoryName}' (ID: ${categoryId})?`)) {
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/menu/categories/${encodeURIComponent(categoryId)}`, {
+      method: 'DELETE'
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || data.message || "Failed to delete category");
+    }
+
+    showToast(data.message || `Category '${categoryName}' deleted`, "info");
+    await fetchCategories();
+  } catch (err) {
+    console.error("Delete category error:", err);
+    showToast(err.message, "error");
+  }
+}
+
+window.toggleAddCategoryCard = toggleAddCategoryCard;
+window.submitNewCategory = submitNewCategory;
+window.deleteCategory = deleteCategory;
 
 function filterCategoriesTable(query) {
   if (!state.categories || state.categories.length === 0) return;
