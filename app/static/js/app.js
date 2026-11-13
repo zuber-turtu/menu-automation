@@ -550,9 +550,26 @@ async function startExtraction() {
 
     if (data.status === 'success' && Array.isArray(data.items)) {
       const defaultTiming = getBatchStoreTiming();
+      const cfg = getMarkupConfig();
       data.items.forEach(it => {
         if (!it.available_time_starts) it.available_time_starts = defaultTiming.starts;
         if (!it.available_time_ends) it.available_time_ends = defaultTiming.ends;
+        it.original_price = it.price !== undefined && it.price !== null ? Number(it.price) || 0 : 0;
+        it.apply_markup = true;
+        if (cfg.isActive) {
+          it.price = calculateMarkupPrice(it.original_price, cfg.value, cfg.type);
+        }
+        if (Array.isArray(it.variations)) {
+          it.variations.forEach(g => {
+            if (!Array.isArray(g.values)) return;
+            g.values.forEach(v => {
+              v.original_price = v.optionPrice !== undefined && v.optionPrice !== '' ? Number(v.optionPrice) || 0 : 0;
+              if (cfg.isActive && cfg.applyVariations) {
+                v.optionPrice = String(calculateMarkupPrice(v.original_price, cfg.value, cfg.type));
+              }
+            });
+          });
+        }
       });
       state.extractedItems = data.items;
       renderTable(data.items);
@@ -899,12 +916,195 @@ async function generateAIDescriptions() {
   }
 }
 
+// =====================================================================
+// 4a. Price Markup & Adjustment Helpers
+// =====================================================================
+
+function getMarkupConfig() {
+  const valEl = document.getElementById('batchMarkupValue');
+  const typeEl = document.getElementById('batchMarkupType');
+  const varEl = document.getElementById('batchMarkupVariations');
+
+  const value = Math.max(0, parseFloat(valEl ? valEl.value : 0) || 0);
+  const type = (typeEl ? typeEl.value : 'percent') || 'percent';
+  const applyVariations = !!(varEl && varEl.checked);
+
+  return { value, type, applyVariations, isActive: value > 0 };
+}
+
+function calculateMarkupPrice(originalPrice, markupValue, markupType) {
+  const p = Number(originalPrice) || 0;
+  if (!markupValue || markupValue <= 0 || p <= 0) return p;
+
+  if (markupType === 'percent') {
+    return Math.round(p * (1 + markupValue / 100));
+  } else {
+    return Math.round(p + markupValue);
+  }
+}
+
+function handleMarkupSettingChange() {
+  const valEl = document.getElementById('batchMarkupValue');
+  const typeEl = document.getElementById('batchMarkupType');
+  const varEl = document.getElementById('batchMarkupVariations');
+
+  if (valEl) localStorage.setItem('menu_batchMarkupValue', valEl.value);
+  if (typeEl) localStorage.setItem('menu_batchMarkupType', typeEl.value);
+  if (varEl) localStorage.setItem('menu_batchMarkupVariations', varEl.checked ? 'true' : 'false');
+
+  recalculateAllPrices();
+}
+
+function recalculateAllPrices() {
+  if (!state.extractedItems || state.extractedItems.length === 0) return;
+  const cfg = getMarkupConfig();
+
+  state.extractedItems.forEach(item => {
+    if (item.original_price === undefined || item.original_price === null) {
+      item.original_price = item.price !== undefined && item.price !== null ? Number(item.price) || 0 : 0;
+    }
+    if (item.apply_markup === undefined) {
+      item.apply_markup = true;
+    }
+
+    if (cfg.isActive && item.apply_markup) {
+      item.price = calculateMarkupPrice(item.original_price, cfg.value, cfg.type);
+    } else {
+      item.price = item.original_price;
+    }
+
+    if (Array.isArray(item.variations)) {
+      item.variations.forEach(g => {
+        if (!Array.isArray(g.values)) return;
+        g.values.forEach(v => {
+          if (v.original_price === undefined || v.original_price === null) {
+            v.original_price = v.optionPrice !== undefined && v.optionPrice !== '' ? Number(v.optionPrice) || 0 : 0;
+          }
+          if (cfg.isActive && cfg.applyVariations && item.apply_markup) {
+            v.optionPrice = String(calculateMarkupPrice(v.original_price, cfg.value, cfg.type));
+          } else {
+            v.optionPrice = String(v.original_price);
+          }
+        });
+      });
+    }
+  });
+
+  renderTable(state.extractedItems);
+}
+
+function toggleItemMarkup(index, checked) {
+  if (!state.extractedItems || !state.extractedItems[index]) return;
+  const item = state.extractedItems[index];
+  item.apply_markup = !!checked;
+
+  const cfg = getMarkupConfig();
+  if (cfg.isActive && item.apply_markup) {
+    item.price = calculateMarkupPrice(item.original_price, cfg.value, cfg.type);
+  } else {
+    item.price = item.original_price;
+  }
+
+  if (Array.isArray(item.variations)) {
+    item.variations.forEach(g => {
+      if (!Array.isArray(g.values)) return;
+      g.values.forEach(v => {
+        if (v.original_price === undefined) {
+          v.original_price = v.optionPrice !== undefined && v.optionPrice !== '' ? Number(v.optionPrice) || 0 : 0;
+        }
+        if (cfg.isActive && cfg.applyVariations && item.apply_markup) {
+          v.optionPrice = String(calculateMarkupPrice(v.original_price, cfg.value, cfg.type));
+        } else {
+          v.optionPrice = String(v.original_price);
+        }
+      });
+    });
+  }
+
+  updateMasterToggleState();
+  renderTable(state.extractedItems);
+}
+
+function toggleAllMarkup(checked) {
+  if (!state.extractedItems || state.extractedItems.length === 0) return;
+  state.extractedItems.forEach(item => {
+    item.apply_markup = !!checked;
+  });
+  recalculateAllPrices();
+}
+
+function updateMasterToggleState() {
+  const masterEl = document.getElementById('masterMarkupToggle');
+  if (!masterEl) return;
+  if (!state.extractedItems || state.extractedItems.length === 0) {
+    masterEl.checked = true;
+    masterEl.indeterminate = false;
+    return;
+  }
+  const checkedCount = state.extractedItems.filter(it => it.apply_markup !== false).length;
+  if (checkedCount === state.extractedItems.length) {
+    masterEl.checked = true;
+    masterEl.indeterminate = false;
+  } else if (checkedCount === 0) {
+    masterEl.checked = false;
+    masterEl.indeterminate = false;
+  } else {
+    masterEl.checked = false;
+    masterEl.indeterminate = true;
+  }
+}
+
+function handleManualPriceEdit(index, val) {
+  if (!state.extractedItems || !state.extractedItems[index]) return;
+  const item = state.extractedItems[index];
+  const newP = Math.max(0, parseFloat(val) || 0);
+  item.price = newP;
+
+  const cfg = getMarkupConfig();
+  if (!cfg.isActive || !item.apply_markup) {
+    item.original_price = newP;
+  }
+  renderTable(state.extractedItems);
+}
+
+window.getMarkupConfig = getMarkupConfig;
+window.calculateMarkupPrice = calculateMarkupPrice;
+window.handleMarkupSettingChange = handleMarkupSettingChange;
+window.recalculateAllPrices = recalculateAllPrices;
+window.toggleItemMarkup = toggleItemMarkup;
+window.toggleAllMarkup = toggleAllMarkup;
+window.handleManualPriceEdit = handleManualPriceEdit;
+
 function renderTable(items) {
   // Pre-process any add-ons embedded in item descriptions
   items = (items || []).map(it => processItemAddons(it));
   // Enforce strict dietary separation: dishes with both veg and non-veg options split into distinct food items
   items = splitMixedDietaryItems(items);
   state.extractedItems = items;
+
+  const markupCfg = getMarkupConfig();
+
+  // Ensure each item has original_price and apply_markup initialized
+  items.forEach(it => {
+    if (it.original_price === undefined || it.original_price === null) {
+      it.original_price = it.price !== undefined && it.price !== null ? Number(it.price) || 0 : 0;
+    }
+    if (it.apply_markup === undefined) {
+      it.apply_markup = true;
+    }
+    if (Array.isArray(it.variations)) {
+      it.variations.forEach(g => {
+        if (!Array.isArray(g.values)) return;
+        g.values.forEach(v => {
+          if (v.original_price === undefined || v.original_price === null) {
+            v.original_price = v.optionPrice !== undefined && v.optionPrice !== '' ? Number(v.optionPrice) || 0 : 0;
+          }
+        });
+      });
+    }
+  });
+
+  updateMasterToggleState();
 
   const tbody = document.getElementById('menuItemsBody');
   document.getElementById('itemsCountBadge').innerText = items.length;
@@ -951,6 +1151,28 @@ function renderTable(items) {
     const itemEnds = item.available_time_ends ? item.available_time_ends.slice(0, 5) : defaultTiming.ends.slice(0, 5);
     const hasCustomTiming = Boolean(item.custom_timing);
 
+    const isMarkupActive = markupCfg.isActive;
+    const isItemApplied = item.apply_markup !== false;
+    const origPrice = item.original_price !== undefined ? item.original_price : (Number(item.price) || 0);
+    const curPrice = item.price !== undefined && item.price !== null ? item.price : origPrice;
+
+    let markupBadgeHtml = '';
+    if (isMarkupActive && isItemApplied) {
+      const tagText = markupCfg.type === 'percent' ? `${markupCfg.value}%` : `₹${markupCfg.value}`;
+      markupBadgeHtml = `
+        <div class="price-diff-badge" title="Original menu price: ₹${origPrice}">
+          <span class="old-price-strike">₹${origPrice}</span>
+          <span class="markup-tag">+${tagText}</span>
+        </div>
+      `;
+    } else if (isMarkupActive && !isItemApplied) {
+      markupBadgeHtml = `
+        <div class="price-diff-badge exempt" title="Price increase bypassed for this item">
+          <span class="exempt-tag">Original Price</span>
+        </div>
+      `;
+    }
+
     return `
       <tr data-index="${idx}">
         <td>
@@ -978,16 +1200,31 @@ function renderTable(items) {
           >
         </td>
         <td>
-          <div class="price-input-wrapper">
-            <span class="currency-prefix">₹</span>
-            <input 
-              type="number" 
-              step="1" 
-              min="0"
-              value="${item.price !== null && item.price !== undefined ? item.price : ''}" 
-              onchange="updateItemField(${idx}, 'price', parseFloat(this.value) || 0)"
-              placeholder="0"
-            >
+          <div class="price-cell-container">
+            <div class="price-row-top">
+              <label class="round-check-wrapper" title="${isItemApplied ? 'Price increase active (Click to keep original price)' : 'Original price locked (Click to apply price increase)'}">
+                <input 
+                  type="checkbox" 
+                  class="round-check" 
+                  ${isItemApplied ? 'checked' : ''} 
+                  onchange="toggleItemMarkup(${idx}, this.checked)"
+                >
+                <span class="round-check-mark"></span>
+              </label>
+              <div class="price-input-wrapper" style="flex: 1;">
+                <span class="currency-prefix">₹</span>
+                <input 
+                  type="number" 
+                  step="1" 
+                  min="0"
+                  value="${curPrice}" 
+                  onchange="handleManualPriceEdit(${idx}, this.value)"
+                  placeholder="0"
+                  title="${isMarkupActive && isItemApplied ? `Marked-up price (Original: ₹${origPrice})` : `Item price: ₹${curPrice}`}"
+                >
+              </div>
+            </div>
+            ${markupBadgeHtml}
           </div>
         </td>
         <td>
@@ -1148,6 +1385,8 @@ function addNewRow() {
     category_name: state.categories.length > 0 ? state.categories[0].name : "General",
     category_id: state.categories.length > 0 ? String(state.categories[0].id) : "",
     price: 0.0,
+    original_price: 0.0,
+    apply_markup: true,
     veg: "yes",
     variations: [],
     available_time_starts: defaultTiming.starts,
@@ -1183,7 +1422,9 @@ function openVariationModal(index) {
   if (!item) return;
 
   document.getElementById('varModalTitle').innerText = `Edit Variations: ${item.name || 'Dish'}`;
-  document.getElementById('varModalSubtitle').innerText = `Base Item Price: ₹${item.price || 0} • Formatted for Turtu actual import`;
+  const origPrice = item.original_price !== undefined ? item.original_price : item.price;
+  const priceNotice = (origPrice !== item.price) ? `Base Item Price: ₹${item.price || 0} (Original: ₹${origPrice})` : `Base Item Price: ₹${item.price || 0}`;
+  document.getElementById('varModalSubtitle').innerText = `${priceNotice} • Formatted for Turtu actual import`;
 
   if (Array.isArray(item.variations) && item.variations.length > 0) {
     currentVarGroups = JSON.parse(JSON.stringify(item.variations));
@@ -1537,17 +1778,21 @@ function saveVariationModal() {
 
           if (minP === maxP && minP > 0) {
             state.extractedItems[editingVarIndex].price = minP;
-            group.values.forEach(v => { v.optionPrice = "0"; });
+            state.extractedItems[editingVarIndex].original_price = minP;
+            group.values.forEach(v => { v.optionPrice = "0"; v.original_price = 0; });
           } else if (minP > 0) {
             state.extractedItems[editingVarIndex].price = minP;
+            state.extractedItems[editingVarIndex].original_price = minP;
             group.values.forEach(v => {
               const delta = (parseFloat(v.optionPrice) || 0) - minP;
               v.optionPrice = String(Math.round(delta * 100) / 100);
+              v.original_price = Number(v.optionPrice);
             });
           } else {
             group.values.forEach(v => {
               const delta = parseFloat(v.optionPrice) || 0;
               v.optionPrice = String(Math.round(delta * 100) / 100);
+              v.original_price = Number(v.optionPrice);
             });
           }
         }
@@ -1783,6 +2028,8 @@ function initBatchSettings() {
     'batchModuleId',
     'batchDiscount',
     'batchDiscountType',
+    'batchMarkupValue',
+    'batchMarkupType',
     'batchTimeStarts',
     'batchTimeEnds'
   ];
@@ -1805,6 +2052,18 @@ function initBatchSettings() {
       localStorage.setItem('menu_' + id, el.value);
     });
   });
+
+  // Checkbox: batchMarkupVariations
+  const varCheckbox = document.getElementById('batchMarkupVariations');
+  if (varCheckbox) {
+    const savedVar = localStorage.getItem('menu_batchMarkupVariations');
+    if (savedVar !== null) {
+      varCheckbox.checked = (savedVar === 'true' || savedVar === '1');
+    }
+    varCheckbox.addEventListener('change', () => {
+      localStorage.setItem('menu_batchMarkupVariations', varCheckbox.checked ? 'true' : 'false');
+    });
+  }
 }
 
 // =====================================================================

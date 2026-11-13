@@ -132,6 +132,26 @@
                   </select>
                 </div>
 
+                <!-- Price Increase / Markup Panel -->
+                <div class="batch-field">
+                  <label>Price Increase</label>
+                  <input type="number" id="batchMarkupValue" value="0" min="0" step="1" placeholder="0" title="Increase menu prices globally" oninput="handleMarkupSettingChange()">
+                </div>
+                <div class="batch-field">
+                  <label>Increase Type</label>
+                  <select id="batchMarkupType" onchange="handleMarkupSettingChange()">
+                    <option value="percent">Percent (%)</option>
+                    <option value="amount">Amount (₹)</option>
+                  </select>
+                </div>
+                <div class="batch-field span-2 markup-checkbox-field">
+                  <label class="custom-checkbox-container" title="When checked, portion sizes and variation prices will also be increased">
+                    <input type="checkbox" id="batchMarkupVariations" onchange="handleMarkupSettingChange()">
+                    <span class="custom-checkmark"></span>
+                    <span class="checkbox-label-text">Apply price increase to Variations & Portion sizes</span>
+                  </label>
+                </div>
+
                 <!-- High-Visibility Store Operating Hours Panel -->
                 <div class="batch-timing-panel span-2">
                   <div class="timing-panel-header">
@@ -255,7 +275,15 @@
                   <tr>
                     <th style="width: 240px; min-width: 240px;">Category & Turtu ID</th>
                     <th style="width: 220px; min-width: 220px;">Item Name</th>
-                    <th style="width: 100px; min-width: 100px;">Price (₹)</th>
+                    <th style="width: 145px; min-width: 145px;">
+                      <div class="price-header-wrapper" title="Price in rupees. Toggle circle to apply/bypass price increase for all items">
+                        <label class="round-check-wrapper" title="Toggle price increase for all items">
+                          <input type="checkbox" id="masterMarkupToggle" checked onchange="toggleAllMarkup(this.checked)">
+                          <span class="round-check-mark"></span>
+                        </label>
+                        <span>Price (₹)</span>
+                      </div>
+                    </th>
                     <th style="width: 120px; min-width: 120px;">Dietary</th>
                     <th style="width: 260px; min-width: 260px;">Variations / Sizes</th>
                     <th style="width: 285px; min-width: 260px;">Description</th>

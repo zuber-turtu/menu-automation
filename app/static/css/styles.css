@@ -923,6 +923,142 @@ tbody tr:hover {
   outline: none;
 }
 
+/* Price Cell Container & Dual-Price Display */
+.price-cell-container {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.price-row-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+/* Custom Circular Checkbox (Round Check) */
+.round-check-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.round-check-wrapper input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.round-check-mark {
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  border: 1.8px solid var(--company-teal);
+  background: #FFFFFF;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.round-check-wrapper:hover .round-check-mark {
+  border-color: var(--company-forest);
+  transform: scale(1.1);
+}
+
+.round-check-wrapper input:checked ~ .round-check-mark {
+  background: var(--company-teal);
+  border-color: var(--company-teal);
+}
+
+.round-check-wrapper input:checked ~ .round-check-mark::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -2px;
+}
+
+/* Header master toggle layout */
+.price-header-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Old Price & Markup Badge */
+.price-diff-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  padding-left: 21px; /* aligns under price input past the 17px round check */
+}
+
+.price-diff-badge .old-price-strike {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.price-diff-badge .markup-tag {
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-weight: 700;
+  font-size: 0.68rem;
+  letter-spacing: 0.01em;
+}
+
+.price-diff-badge.exempt .exempt-tag {
+  color: var(--text-secondary);
+  background: var(--company-foam);
+  border: 1px solid var(--company-light);
+  border-radius: 10px;
+  padding: 1px 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* Batch Settings Markup Checkbox */
+.markup-checkbox-field {
+  display: flex;
+  align-items: center;
+  background: var(--company-wash) !important;
+  border: 1.5px dashed var(--company-light) !important;
+}
+
+.custom-checkbox-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--company-forest);
+}
+
+.custom-checkbox-container input[type="checkbox"] {
+  accent-color: var(--company-teal);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
 /* Dietary Select in Table */
 .dietary-select {
   background-color: #F4F7F7 !important;
