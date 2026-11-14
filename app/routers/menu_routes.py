@@ -142,7 +142,7 @@ def process_item_addons(item: Dict[str, Any]) -> Dict[str, Any]:
             existing_addon_group["min"] = "0"
         else:
             variations.append({
-                "name": "Add-on",
+                "name": "Add-ons",
                 "type": "multi",
                 "min": "0",
                 "max": str(len(addons)),
@@ -151,6 +151,99 @@ def process_item_addons(item: Dict[str, Any]) -> Dict[str, Any]:
             })
 
     return item
+
+def infer_canonical_group_name(raw_name: str, options: List[Dict[str, Any]], dish_name: str = "") -> str:
+    """
+    Semantically analyzes variation options, dish context, and raw group names
+    to assign an accurate, human-understandable, and portal-ready canonical title.
+    Priority 1: If raw_name was determined by Gemini AI or the user (and is not a generic placeholder),
+    respect and preserve it in Title Case.
+    Priority 2: Otherwise, analyze option labels and dish context using culinary heuristics.
+    """
+    clean_raw = (raw_name or "").strip()
+    generic_placeholders = [
+        "variation", "variations", "group", "group 1", "option", "options",
+        "default", "none", "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons", ""
+    ]
+    if clean_raw and clean_raw.lower() not in generic_placeholders:
+        return clean_raw.title()[:30]
+
+    labels = [str(opt.get("label", "")).strip() for opt in (options or []) if opt]
+    labels_text = " ".join(labels).lower()
+    dish_lower = (dish_name or "").lower()
+    raw_lower = clean_raw.lower()
+
+    # 1. Piece / Quantity check (e.g. '1 Piece', '2 Piece', '6 Pcs', '12 Pcs', '4 Strips')
+    if re.search(r"\b(\d+\s*(?:pcs?|pieces?|strips?|wings?|tikkas?|nuggets?)|(?:piece|pcs|pieces))\b", labels_text):
+        return "Quantity"
+
+    # 2. Cooking / Preparation Style (e.g. 'Steamed', 'Fried', 'Tandoori', 'Grilled', 'Kurkure')
+    cooking_keywords = [
+        "steamed", "steam", "fried", "fry", "deep fried", "tandoori", "tandoor",
+        "grilled", "grill", "roasted", "roast", "kurkure", "crispy", "baked",
+        "boiled", "tawa", "pan fried", "crispy fried"
+    ]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in cooking_keywords):
+        return "Cooking Style"
+
+    # 3. Pizza Crust Choice (e.g. 'Thin Crust', 'Cheese Burst', 'Fresh Pan', 'Hand Tossed')
+    crust_keywords = ["crust", "cheese burst", "hand tossed", "fresh pan", "pan crust", "stuffed crust"]
+    if any(k in labels_text for k in crust_keywords) or ("crust" in raw_lower):
+        return "Crust Choice"
+
+    # 4. Spice Level (e.g. 'Mild', 'Medium', 'Spicy', 'Extra Hot', 'Peri Peri')
+    spice_keywords = ["mild", "medium spicy", "spicy", "extra hot", "extra spicy", "hot", "peri peri", "schezwan", "fire"]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in spice_keywords) or ("spice" in raw_lower):
+        return "Spice Level"
+
+    # 5. Flavor (Desserts, Shakes, Ice Creams, Sodas)
+    flavor_keywords = [
+        "chocolate", "vanilla", "strawberry", "mango", "butterscotch", "oreo", "pista",
+        "pistachio", "black currant", "butter scotch", "kesar", "badam", "caramel",
+        "mint", "berry", "blueberry", "dry fruit", "chocochip", "choco chip", "green apple",
+        "litchi", "lychee", "pineapple", "kulfi", "paan"
+    ]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in flavor_keywords) or ("flavor" in raw_lower or "flavour" in raw_lower):
+        return "Flavor"
+
+    # 6. Bread Choice (Combos, Thalis, Curries)
+    bread_keywords = ["roti", "naan", "paratha", "kulcha", "wheat", "maida", "butter naan", "garlic naan", "tandoori roti"]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in bread_keywords) or ("bread" in raw_lower or "roti" in raw_lower):
+        return "Bread Choice"
+
+    # 7. Base Choice (Rice, Noodles)
+    base_keywords = ["fried rice", "hakka noodles", "noodles", "jeera rice", "steamed rice"]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in base_keywords) or ("base" in raw_lower):
+        return "Base Choice"
+
+    # 8. Preparation (Dry vs Gravy)
+    prep_keywords = ["dry", "gravy", "semi gravy", "semi-gravy", "sukka", "curry"]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in prep_keywords) or ("prep" in raw_lower):
+        return "Preparation"
+
+    # 9. Size / Volume (Metric measurements or S/M/L)
+    has_size_metric = re.search(r"\b(\d+\s*(?:ml|l|ltr|litres?|gm|g|grams?|kg|kgs?)|small|medium|large)\b", labels_text)
+    if has_size_metric or "size" in raw_lower:
+        return "Size"
+
+    # 10. Portion Size (ONLY when options explicitly mention Half / Full / Plate / Quarter / Single / Double)
+    portion_keywords = ["half", "full", "quarter", "single", "double", "plate", "mini", "jumbo"]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in portion_keywords) or ("portion" in raw_lower and "size" in raw_lower):
+        return "Portion Size"
+
+    # 11. Add-ons / Extras (Only when options or group name explicitly indicate add-ons/extras/toppings/dips)
+    addon_keywords = ["extra", "topping", "toppings", "add on", "add-on", "dip", "dips", "dressing"]
+    if any(re.search(rf"\b{re.escape(k)}\b", labels_text) for k in addon_keywords) or any(k in raw_lower for k in ["add", "extra", "topping", "side"]):
+        return "Add-ons"
+
+    # 12. Dynamic Variety / Choice based on dish name (e.g. 'Choice of Bhajji', 'Choice of Paratha', 'Choice of Dosa')
+    if dish_name:
+        clean_dish = re.sub(r"[^a-zA-Z\s]", " ", dish_name).strip()
+        dish_words = [w.capitalize() for w in clean_dish.split() if w]
+        if dish_words and len(dish_words) <= 3:
+            return f"Choice of {' '.join(dish_words)}"
+
+    return "Variety"
 
 NON_VEG_TERMS = {
     "chicken", "murgh", "murg", "mutton", "gosht", "ghosht", "meat", "lamb",
@@ -406,6 +499,17 @@ def normalize_variation_deltas(item: Dict[str, Any]) -> Dict[str, Any]:
         if not values or len(values) < 1:
             continue
 
+        # Preserve Gemini's context-analyzed group title; fallback to inference only if missing or generic placeholder
+        raw_grp_name = str(group.get("name") or "").strip()
+        generic_placeholders = [
+            "variation", "variations", "group", "group 1", "default", "options", "option",
+            "none", "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons", ""
+        ]
+        if raw_grp_name and raw_grp_name.lower() not in generic_placeholders:
+            group["name"] = raw_grp_name.title()[:30]
+        else:
+            group["name"] = infer_canonical_group_name(raw_grp_name, values, item.get("name", ""))
+
         g_type = str(group.get("type", "single")).lower()
         g_name = str(group.get("name", "")).lower()
         is_addon = (g_type in ["multi", "multiple"]) or ("add" in g_name) or ("extra" in g_name) or ("topping" in g_name) or ("dip" in g_name)
@@ -511,17 +615,16 @@ def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, 
                         continue
                     else:
                         item["name"] = base_name
+                        opt_dicts = [{"label": opt_lbl, "optionPrice": "0"} for opt_lbl in raw_options]
+                        group_name = infer_canonical_group_name("Variation", opt_dicts, base_name)
                         item["variations"] = [
                             {
-                                "name": "Variation",
+                                "name": group_name,
                                 "type": "single",
                                 "min": "0",
                                 "max": "0",
                                 "required": "off",
-                                "values": [
-                                    {"label": opt_lbl, "optionPrice": "0"}
-                                    for opt_lbl in raw_options
-                                ]
+                                "values": opt_dicts
                             }
                         ]
                         has_existing_vars = True
@@ -605,7 +708,7 @@ def consolidate_duplicate_dishes(items: List[Dict[str, Any]]) -> List[Dict[str, 
             base_price = sorted_opts[0]["price"]
             item["name"] = entry["base_name"]
             item["price"] = base_price
-            group_name = "Portion" if entry.get("group_type") == "portion" else "Variation"
+            group_name = infer_canonical_group_name(entry.get("group_type", ""), sorted_opts, entry["base_name"])
             item["variations"] = [
                 {
                     "name": group_name,
@@ -638,7 +741,14 @@ class VariationOption(BaseModel):
     optionPrice: Union[str, int, float] = Field(description="Numeric price for this option, e.g. '50', '150', or 50")
 
 class VariationGroup(BaseModel):
-    name: str = Field(default="Portion", description="Variation title, e.g. Portion, Size, Add-on")
+    name: str = Field(
+        default="Portion Size",
+        description=(
+            "Context-aware variation title analyzed directly from the menu options and dish context "
+            "(e.g. 'Choice of Patty', 'Noodle Type', 'Cooking Style', 'Crust Choice', 'Sweetness Level', "
+            "'Portion Size', 'Piece Count', 'Flavor', 'Add-ons', etc.). Concise 1 to 3 words in Title Case."
+        )
+    )
     type: str = Field(default="single", description="'single' for mandatory choices (Portion/Size) or 'multi' for optional add-ons")
     min: Union[str, int] = Field(default="1", description="Min choices: '1' for single mandatory, '0' for multi optional")
     max: Union[str, int] = Field(default="1", description="Max choices: '1' for single mandatory, or count for multi optional")
@@ -1085,6 +1195,21 @@ Examine this restaurant menu spreadsheet text carefully and extract EVERY dish, 
 5. DESCRIPTIONS:
    - If the spreadsheet row contains a description, preserve it. If blank, set description to "".
 
+6. VARIATION GROUP TITLE DETERMINATION (CRITICAL):
+   - You MUST analyze the dish context and variant options to determine an accurate, human-understandable variation title in Title Case (1 to 3 words).
+   - Examples based on culinary context:
+     * Cooking methods (Steamed, Fried, Tandoori) -> name="Cooking Style"
+     * Piece counts (6 Pcs, 12 Pcs, 1 Pc, 2 Pc) -> name="Piece Count" or "Quantity"
+     * Sizes/Portions (Half, Full, Regular, Large, 250ml) -> name="Portion Size" or "Size"
+     * Flavors/Varieties (Vanilla, Chocolate, Mango) -> name="Flavor"
+     * Crusts (Thin Crust, Cheese Burst) -> name="Crust Choice"
+     * Burger patties (Aloo Tikki, Crispy Veg) -> name="Choice of Patty"
+     * Noodles/Rice (Hakka, Schezwan) -> name="Noodle Type"
+     * Vegetables / Fillings / Dish varieties (e.g. Onion/Mirchi/Potato for Bhajji, Aloo/Gobi/Paneer for Paratha) -> dynamically name as "Choice of <Dish Name>" (e.g. name="Choice of Bhajji", name="Choice of Paratha", name="Choice of Dosa")!
+     * Extras/Toppings (Extra Cheese, Mayo) -> name="Add-ons" (type="multi")
+   - STRICT RULE ON "Portion Size": ONLY use "Portion Size" or "Size" when options are physical portions/sizes (Half, Full, Quarter, Plate, Small, Medium, Large, 250ml). NEVER use "Portion Size" for vegetables, fillings, types, or flavors!
+   - NEVER use generic placeholders like "Variation" or "Group 1". Let your culinary analysis determine the exact title!
+
 ### SPREADSHEET CONTENT TO EXTRACT ({s_name} - Chunk {idx + 1}/{len(spreadsheet_chunks)}):
 {chunk_text}
 
@@ -1139,12 +1264,18 @@ These rules apply to EVERY dish category (Beverages, Breakfast, Fast Food, Chine
    (e.g., 'Bhajji - Onion/Mirchi/Potato', 'Maggi (Plain / Masala / Cheese)', 'Momos - Steamed / Fried / Tandoori', 'Sandwich - Veg / Cheese / Corn', 'Pasta: Red Sauce / White Sauce', 'Paratha - Aloo / Gobi / Paneer', 'Milkshake - Mango / Oreo / Strawberry', 'Ice Cream - Vanilla / Chocolate / Butterscotch', 'Dosa - Plain / Masala / Ghee Roast', 'Chicken Tikka - Malai / Hariyali / Achari'):
    - Clean Base Name: Strip the flavors/types to get the common dish name (e.g. 'Bhajji', 'Maggi', 'Momos', 'Paratha', 'Milkshake').
    - Base Price: Lowest listed price (e.g. 72 for Bhajji).
-   - Variations Group: Create group named "Variation" or "Type" (type="single", required="off") with each flavor/option listed.
+   - Variations Group: Dynamically name the group based on the dish and customization context, e.g. "Choice of <Dish Name>" or specific culinary attribute ("Flavor", "Cooking Style", "Crust Choice", "Bread Choice").
+     * For Bhajji (Onion / Mirchi / Potato): name="Choice of Bhajji"
+     * For Maggi (Plain / Masala / Cheese): name="Choice of Maggi" or "Flavor"
+     * For Paratha (Aloo / Gobi / Paneer): name="Choice of Paratha"
+     * For Dosa (Plain / Masala / Ghee Roast): name="Choice of Dosa"
+     * For Momos (Steamed / Fried / Tandoori): name="Cooking Style"
+     NEVER name vegetable, filling, or flavor varieties as "Portion Size"!
    - Apply delta pricing (if all share the same price ₹72, every option has optionPrice = "0").
    Example for 'Bhajji - Onion/Mirchi/Potato' @ 72:
-   "name": "Bhajji", "price": 72, "veg": "yes", "variations": [{{"name": "Variation", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "Onion", "optionPrice": "0"}}, {{"label": "Mirchi", "optionPrice": "0"}}, {{"label": "Potato", "optionPrice": "0"}}]}}]
+   "name": "Bhajji", "price": 72, "veg": "yes", "variations": [{{"name": "Choice of Bhajji", "type": "single", "min": 1, "max": 1, "required": "on", "values": [{{"label": "Onion", "optionPrice": "0"}}, {{"label": "Mirchi", "optionPrice": "0"}}, {{"label": "Potato", "optionPrice": "0"}}]}}]
    Example for 'Maggi - Plain (60) / Masala (80) / Cheese (100)':
-   "name": "Maggi", "price": 60, "veg": "yes", "variations": [{{"name": "Variation", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "Plain", "optionPrice": "0"}}, {{"label": "Masala", "optionPrice": "20"}}, {{"label": "Cheese", "optionPrice": "40"}}]}}]
+   "name": "Maggi", "price": 60, "veg": "yes", "variations": [{{"name": "Choice of Maggi", "type": "single", "min": 1, "max": 1, "required": "on", "values": [{{"label": "Plain", "optionPrice": "0"}}, {{"label": "Masala", "optionPrice": "20"}}, {{"label": "Cheese", "optionPrice": "40"}}]}}]
 
 3. STRICT PROTEIN & DIETARY SEPARATION (INDIVIDUAL DISHES ONLY, NEVER VARIATIONS):
    - In restaurant catalogs (Turtu/Swiggy/Zomato), distinct proteins, meats, and primary food bases:
@@ -1176,17 +1307,34 @@ These rules apply to EVERY dish category (Beverages, Breakfast, Fast Food, Chine
      2. Cooking / flavor styles of the same base (e.g. 'Bhajji - Onion/Mirchi/Potato', 'Momos - Steamed / Fried / Tandoori').
      3. Add-ons and toppings (type="multi", e.g. Extra Cheese, Dips).
 
-4. PIECE, PORTION, & SIZE CONSOLIDATION:
-   If the SAME dish appears multiple times or on separate lines with different piece counts, portion sizes, weights, or volumes:
-   (e.g. 'Idali 1 Piece' & 'Idali 2 Piece', 'Chicken Tikka (6 Pcs)' & 'Chicken Tikka (12 Pcs)', 'Chicken Biryani (Half)' & 'Chicken Biryani (Full)', 'Cold Coffee (Regular)' & 'Cold Coffee (Large)', 'Paneer Butter Masala (Half)' & 'Paneer Butter Masala (Full)', 'Ice Cream (Single Scoop)' & 'Ice Cream (Double Scoop)'):
-   CONSOLIDATE THEM INTO A SINGLE MENU ITEM. NEVER create separate items for different sizes/pieces of the same dish!
-   - Base Name: Clean dish name (e.g. 'Idali', 'Chicken Tikka', 'Chicken Biryani', 'Cold Coffee').
-   - Base Price: Lowest price (e.g. 48 for Idali 1 Piece, 180 for Chicken Tikka 6 Pcs).
-   - Variations Group: Named "Portion" (type="single", required="off") with DELTA pricing:
+4. CONTEXT-AWARE VARIATION GROUP TITLE DETERMINATION (CRITICAL):
+   You MUST analyze the dish, ingredients, and variation options to assign an accurate, human-understandable, and context-aware variation title (1 to 3 words in Title Case).
+   - Carefully examine what the customer is choosing and let Gemini AI determine the most natural, specific customization title:
+     * Cooking methods (e.g. 'Steamed', 'Fried', 'Tandoori', 'Kurkure', 'Grilled') -> name="Cooking Style"
+     * Piece counts (e.g. '1 Piece', '2 Piece', '6 Pcs', '12 Pcs') -> name="Piece Count" or "Quantity"
+     * Portions (e.g. 'Half', 'Full', 'Quarter', 'Plate') -> name="Portion Size"
+     * Volumes / Measurements (e.g. 'Regular', 'Large', '250ml', '500ml', '1 Litre') -> name="Size"
+     * Burger / Sandwich patties (e.g. 'Aloo Tikki', 'Crispy Veg', 'Paneer Patty') -> name="Choice of Patty"
+     * Pizza Crusts (e.g. 'Thin Crust', 'Cheese Burst', 'Fresh Pan') -> name="Crust Choice"
+     * Flavors / Varieties (e.g. 'Vanilla', 'Chocolate', 'Mango', 'Strawberry') -> name="Flavor"
+     * Noodle / Pasta types (e.g. 'Hakka', 'Schezwan', 'Flat', 'Penne') -> name="Noodle Type" or "Pasta Type"
+     * Sweetness / Ice levels (e.g. 'Less Sweet', 'Normal Sweet', 'No Sugar') -> name="Sweetness Level"
+     * Spice levels (e.g. 'Mild', 'Medium', 'Spicy', 'Extra Hot') -> name="Spice Level"
+     * Breads / Accompaniments (e.g. 'Roti', 'Naan', 'Paratha', 'Rice') -> name="Bread Choice"
+     * Gravy vs Dry (e.g. 'Dry', 'Gravy', 'Semi-Gravy') -> name="Preparation"
+     * Vegetables / Fillings / Dish varieties (e.g. Onion/Mirchi/Potato for Bhajji, Aloo/Gobi/Paneer for Paratha, Plain/Masala/Ghee Roast for Dosa) -> dynamically name as "Choice of <Dish Name>" (e.g. name="Choice of Bhajji", name="Choice of Paratha", name="Choice of Dosa", name="Choice of Sandwich")!
+     * Add-ons / Extras (e.g. 'Extra Cheese', 'Mayo Dip') -> name="Add-ons" (type="multi")
+   - STRICT RULE ON "Portion Size": ONLY use "Portion Size" or "Size" when options are physical portions/sizes (Half, Full, Quarter, Plate, Small, Medium, Large, 250ml). NEVER use "Portion Size" for vegetables, fillings, types, or flavors!
+   - NEVER use generic placeholders like "Variation", "Group 1", or "Option".
+   - CONSOLIDATE multiple lines/pieces of the same dish into a single menu item with delta pricing.
    Example for Idali (1 Piece = ₹48, 2 Piece = ₹78):
-   "name": "Idali", "price": 48, "veg": "yes", "variations": [{{"name": "Portion", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "1 Piece", "optionPrice": "0"}}, {{"label": "2 Piece", "optionPrice": "30"}}]}}]
+   "name": "Idali", "price": 48, "veg": "yes", "variations": [{{"name": "Piece Count", "type": "single", "min": 1, "max": 1, "required": "on", "values": [{{"label": "1 Piece", "optionPrice": "0"}}, {{"label": "2 Piece", "optionPrice": "30"}}]}}]
    Example for Chicken Tikka (6 Pcs = ₹180, 12 Pcs = ₹320):
-   "name": "Chicken Tikka", "price": 180, "veg": "no", "variations": [{{"name": "Portion", "type": "single", "min": 0, "max": 0, "required": "off", "values": [{{"label": "6 Pcs", "optionPrice": "0"}}, {{"label": "12 Pcs", "optionPrice": "140"}}]}}]
+   "name": "Chicken Tikka", "price": 180, "veg": "no", "variations": [{{"name": "Piece Count", "type": "single", "min": 1, "max": 1, "required": "on", "values": [{{"label": "6 Pcs", "optionPrice": "0"}}, {{"label": "12 Pcs", "optionPrice": "140"}}]}}]
+   Example for Steamed / Fried Momos:
+   "name": "Veg Momos", "price": 100, "veg": "yes", "variations": [{{"name": "Cooking Style", "type": "single", "min": 1, "max": 1, "required": "on", "values": [{{"label": "Steamed", "optionPrice": "0"}}, {{"label": "Fried", "optionPrice": "20"}}]}}]
+   Example for Veg Burger with Aloo Tikki / Crispy Paneer:
+   "name": "Veg Burger", "price": 120, "veg": "yes", "variations": [{{"name": "Choice of Patty", "type": "single", "min": 1, "max": 1, "required": "on", "values": [{{"label": "Aloo Tikki", "optionPrice": "0"}}, {{"label": "Crispy Paneer", "optionPrice": "40"}}]}}]
 
 5. SEPARATE ROWS OF THE SAME DISH FAMILY (SAME BASE / COOKING STYLE ONLY):
    - If a menu lists separate rows for vegetable varieties or cooking styles of the same dish:
@@ -1199,8 +1347,8 @@ These rules apply to EVERY dish category (Beverages, Breakfast, Fast Food, Chine
    (e.g., 'Cheesy Fries loaded with golden, cheesy melty goodness. ADD ON PIRI PIRI +20', 'Loaded Nachos. Add-ons: Jalapeno +15, Sour Cream +25', 'Chicken Burger. Extras: Extra Cheese @ 30 / Bacon +50'):
    - Clean Description: Strip out the raw add-on text from the dish description so only the clean culinary description remains (e.g. 'Cheesy fries loaded with golden, cheesy melty goodness.').
    - Base Item Price: Keep the dish price as listed (e.g. 179 for Cheesy Fries). Do NOT alter the main item base price for add-ons!
-   - Variations Group: Create an 'Add-on' group with:
-     name="Add-on", type="multi", required="off", min="0", max=str(count_of_addons)
+   - Variations Group: Create an 'Add-ons' group with:
+     name="Add-ons", type="multi", required="off", min="0", max=str(count_of_addons)
    - Each add-on option has its additional price as optionPrice (e.g. optionPrice: "20").
 
 7. MANDATORY SINGLE-TYPE VS OPTIONAL MULTI-TYPE VARIATIONS:
@@ -1272,8 +1420,14 @@ Format strictly according to the requested JSON schema.
             formatted_vars = []
             for v in vars_list:
                 if isinstance(v, dict) and "values" in v and len(v["values"]) > 0:
+                    raw_grp_name = str(v.get("name", "")).strip()
+                    generic_placeholders = [
+                        "variation", "variations", "group", "group 1", "default", "options", "option",
+                        "none", "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons", ""
+                    ]
+                    clean_grp_name = raw_grp_name.title() if (raw_grp_name and raw_grp_name.lower() not in generic_placeholders) else "Portion Size"
                     formatted_vars.append({
-                        "name": v.get("name", "Portion"),
+                        "name": clean_grp_name,
                         "type": v.get("type", "single"),
                         "min": str(v.get("min", "0")),
                         "max": str(v.get("max", "0")),

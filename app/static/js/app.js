@@ -1134,7 +1134,15 @@ function renderTable(items) {
           return `${v.label} (+₹${delta})`;
         }).join(', ');
         const badgeType = isMulti ? 'Multi/Opt' : 'Single/Req';
-        return `${escapeHtml(g.name || 'Portion')} [${badgeType}]: ${escapeHtml(optSummary)}`;
+        const genericPlaceholders = [
+          "variation", "variations", "group", "group 1", "default", "none",
+          "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons"
+        ];
+        const displayTitle = (g.name && !genericPlaceholders.includes(g.name.trim().toLowerCase()))
+          ? g.name.trim()
+          : inferCanonicalVariationGroupName(g.name, g.values, item.name);
+        g.name = displayTitle;
+        return `${escapeHtml(displayTitle)} [${badgeType}]: ${escapeHtml(optSummary)}`;
       });
 
       varBadge = `
@@ -1413,6 +1421,110 @@ function deleteRow(index) {
 // 5. Visual Variations Modal Controller (Multi-Group & Add-on Support)
 // =====================================================================
 
+function inferCanonicalVariationGroupName(rawName, options, dishName = '') {
+  const cleanRaw = (rawName || '').trim();
+  const genericPlaceholders = [
+    "variation", "variations", "group", "group 1", "option", "options",
+    "default", "none", "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons", ""
+  ];
+  // Priority 1: If rawName was determined by Gemini AI or the user (and is not a generic placeholder), preserve it
+  if (cleanRaw && !genericPlaceholders.includes(cleanRaw.toLowerCase())) {
+    return cleanRaw.charAt(0).toUpperCase() + cleanRaw.slice(1);
+  }
+
+  // Priority 2: Culinary heuristics fallback when rawName is empty or generic
+  const labels = (options || []).map(o => (typeof o === 'string' ? o : o.label || '').trim());
+  const labelsText = labels.join(' ').toLowerCase();
+  const rawLower = cleanRaw.toLowerCase();
+
+  // 1. Piece / Quantity check
+  if (/\b(\d+\s*(?:pcs?|pieces?|strips?|wings?|tikkas?|nuggets?)|(?:piece|pcs|pieces))\b/i.test(labelsText)) {
+    return "Quantity";
+  }
+
+  // 2. Cooking / Preparation Style
+  const cookingKeywords = [
+    "steamed", "steam", "fried", "fry", "deep fried", "tandoori", "tandoor",
+    "grilled", "grill", "roasted", "roast", "kurkure", "crispy", "baked",
+    "boiled", "tawa", "pan fried", "crispy fried"
+  ];
+  if (cookingKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText))) {
+    return "Cooking Style";
+  }
+
+  // 3. Pizza Crust Choice
+  const crustKeywords = ["crust", "cheese burst", "hand tossed", "fresh pan", "pan crust", "stuffed crust"];
+  if (crustKeywords.some(k => labelsText.includes(k)) || rawLower.includes("crust")) {
+    return "Crust Choice";
+  }
+
+  // 4. Spice Level
+  const spiceKeywords = ["mild", "medium spicy", "spicy", "extra hot", "extra spicy", "hot", "peri peri", "schezwan", "fire"];
+  if (spiceKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || rawLower.includes("spice")) {
+    return "Spice Level";
+  }
+
+  // 5. Flavor
+  const flavorKeywords = [
+    "chocolate", "vanilla", "strawberry", "mango", "butterscotch", "oreo", "pista",
+    "pistachio", "black currant", "butter scotch", "kesar", "badam", "caramel",
+    "mint", "berry", "blueberry", "dry fruit", "chocochip", "choco chip", "green apple",
+    "litchi", "lychee", "pineapple", "kulfi", "paan"
+  ];
+  if (flavorKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || rawLower.includes("flavor") || rawLower.includes("flavour")) {
+    return "Flavor";
+  }
+
+  // 6. Bread Choice
+  const breadKeywords = ["roti", "naan", "paratha", "kulcha", "wheat", "maida", "butter naan", "garlic naan", "tandoori roti"];
+  if (breadKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || rawLower.includes("bread") || rawLower.includes("roti")) {
+    return "Bread Choice";
+  }
+
+  // 7. Base Choice
+  const baseKeywords = ["fried rice", "hakka noodles", "noodles", "jeera rice", "steamed rice"];
+  if (baseKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || rawLower.includes("base")) {
+    return "Base Choice";
+  }
+
+  // 8. Preparation (Dry vs Gravy)
+  const prepKeywords = ["dry", "gravy", "semi gravy", "semi-gravy", "sukka", "curry"];
+  if (prepKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || rawLower.includes("prep")) {
+    return "Preparation";
+  }
+
+  // 9. Size / Volume
+  if (/\b(\d+\s*(?:ml|l|ltr|litres?|gm|g|grams?|kg|kgs?)|small|medium|large)\b/i.test(labelsText) || rawLower.includes("size")) {
+    return "Size";
+  }
+
+  // 10. Portion Size (ONLY when options explicitly mention Half / Full / Plate / Quarter / Single / Double)
+  const portionKeywords = ["half", "full", "quarter", "single", "double", "plate", "mini", "jumbo"];
+  if (portionKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || (rawLower.includes("portion") && rawLower.includes("size"))) {
+    return "Portion Size";
+  }
+
+  // 11. Add-ons (Only when options or group name explicitly indicate add-ons/extras/toppings/dips)
+  const addonKeywords = ["extra", "topping", "toppings", "add on", "add-on", "dip", "dips", "dressing"];
+  if (addonKeywords.some(k => new RegExp(`\\b${k}\\b`, 'i').test(labelsText)) || ["add", "extra", "topping", "side"].some(k => rawLower.includes(k))) {
+    return "Add-ons";
+  }
+
+  // 12. Dynamic Variety / Choice based on dish name (e.g. 'Choice of Bhajji', 'Choice of Paratha', 'Choice of Dosa')
+  if (dishName) {
+    const cleanDish = dishName.replace(/[^a-zA-Z\s]/g, ' ').trim();
+    const words = cleanDish.split(/\s+/).filter(Boolean);
+    if (words.length > 0 && words.length <= 3) {
+      const titleDish = words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      return `Choice of ${titleDish}`;
+    }
+  }
+
+  return "Variety";
+}
+
+window.inferCanonicalVariationGroupName = inferCanonicalVariationGroupName;
+
 let currentVarGroups = [];
 let currentVarGroupIdx = 0;
 
@@ -1428,9 +1540,18 @@ function openVariationModal(index) {
 
   if (Array.isArray(item.variations) && item.variations.length > 0) {
     currentVarGroups = JSON.parse(JSON.stringify(item.variations));
+    const genericPlaceholders = [
+      "variation", "variations", "group", "group 1", "default", "none",
+      "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons"
+    ];
+    currentVarGroups.forEach(g => {
+      if (!g.name || genericPlaceholders.includes(g.name.trim().toLowerCase())) {
+        g.name = inferCanonicalVariationGroupName(g.name, g.values, item.name);
+      }
+    });
   } else {
     currentVarGroups = [{
-      name: "Portion",
+      name: "Portion Size",
       type: "single",
       min: "1",
       max: "1",
@@ -1525,14 +1646,14 @@ function updatePricingHint(type) {
 
 function loadCurrentGroupIntoForm() {
   const g = currentVarGroups[currentVarGroupIdx] || {
-    name: "Portion",
+    name: "Portion Size",
     type: "single",
     required: "on",
     values: []
   };
 
   const isMulti = (g.type === "multi" || g.type === "multiple" || String(g.name).toLowerCase().includes('add'));
-  document.getElementById('varGroupName').value = g.name || (isMulti ? "Add-on" : "Portion");
+  document.getElementById('varGroupName').value = g.name || (isMulti ? "Add-ons" : "Portion Size");
   document.getElementById('varGroupType').value = isMulti ? "multiple" : "single";
   document.getElementById('varGroupRequired').value = g.required || (isMulti ? "off" : "on");
 
@@ -1551,7 +1672,7 @@ function loadCurrentGroupIntoForm() {
 
 function handleVarGroupNameChange(val) {
   if (currentVarGroups[currentVarGroupIdx]) {
-    currentVarGroups[currentVarGroupIdx].name = val.trim() || "Portion";
+    currentVarGroups[currentVarGroupIdx].name = val.trim() || "Portion Size";
   }
   renderVarGroupTabs();
   syncFormToJson();
@@ -1618,7 +1739,7 @@ function applyVariationPreset(preset) {
   }
 
   if (preset === 'addon') {
-    document.getElementById('varGroupName').value = "Add-on";
+    document.getElementById('varGroupName').value = "Add-ons";
     document.getElementById('varGroupType').value = "multiple";
     document.getElementById('varGroupRequired').value = "off";
     updatePricingHint("multiple");
@@ -1630,7 +1751,7 @@ function applyVariationPreset(preset) {
   }
 
   if (preset === 'flavors_same_price') {
-    document.getElementById('varGroupName').value = "Variation";
+    document.getElementById('varGroupName').value = "Flavor";
     document.getElementById('varGroupType').value = "single";
     document.getElementById('varGroupRequired').value = "on";
     updatePricingHint("single");
@@ -1642,7 +1763,7 @@ function applyVariationPreset(preset) {
     return;
   }
 
-  document.getElementById('varGroupName').value = (preset === 's_m_l' || preset === 'reg_large') ? "Size" : "Portion";
+  document.getElementById('varGroupName').value = (preset === 's_m_l' || preset === 'reg_large') ? "Size" : "Portion Size";
   document.getElementById('varGroupType').value = "single";
   document.getElementById('varGroupRequired').value = "on";
   updatePricingHint("single");
@@ -1691,7 +1812,7 @@ function syncCurrentGroupFromForm() {
     }
   });
 
-  const groupName = document.getElementById('varGroupName').value.trim() || "Portion";
+  const groupName = document.getElementById('varGroupName').value.trim() || "Portion Size";
   const groupType = document.getElementById('varGroupType').value || "single";
   const isMulti = (groupType === "multiple" || groupType === "multi");
   const groupReq = document.getElementById('varGroupRequired').value || (isMulti ? "off" : "on");
@@ -1748,9 +1869,21 @@ function saveVariationModal() {
   try {
     let parsed = JSON.parse(rawJson || '[]');
     if (Array.isArray(parsed) && parsed.length > 0) {
+      const dishTitle = state.extractedItems[editingVarIndex]?.name || '';
+      const genericPlaceholders = [
+        "variation", "variations", "group", "group 1", "default", "none",
+        "portion", "add-on", "add-ons", "addon", "addons", "add on", "add ons"
+      ];
       parsed.forEach(group => {
         if (!group || !Array.isArray(group.values) || group.values.length === 0) return;
         
+        // Preserve Gemini or user-defined title; only infer if missing or generic placeholder
+        if (!group.name || genericPlaceholders.includes(group.name.trim().toLowerCase())) {
+          group.name = inferCanonicalVariationGroupName(group.name, group.values, dishTitle);
+        } else {
+          group.name = group.name.trim();
+        }
+
         const gType = (group.type || 'single').toLowerCase();
         const gName = (group.name || '').toLowerCase();
         const isAddon = (gType === 'multiple' || gType === 'multi') || gName.includes('add') || gName.includes('extra') || gName.includes('topping');
